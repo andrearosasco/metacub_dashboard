@@ -26,6 +26,8 @@ def main():
 
     id = uuid4()
 
+    
+
     action_reader = ActionInterface(
         remote_prefix="/metaControllClient",
         local_prefix=f"/metacub_dashboard/{id}",
@@ -34,19 +36,19 @@ def main():
     obs_reader = ObservationReader(
         {
             "camera": CameraInterface(
-                remote_prefix="/ergocubSim",
+                remote_prefix="",
                 local_prefix=f"/metacub_dashboard/{id}",
                 rgb_shape=(640, 480),
-                depth_shape=(640, 480),
+                depth_shape=None,
             ),
             "encoders": EncodersInterface(
-                remote_prefix="/ergocubSim",
+                remote_prefix="/ergocub",
                 local_prefix=f"/metacub_dashboard/{id}",
                 control_boards=["head", "left_arm", "right_arm", "torso"],
                 concatenate=True,
             ),
         },
-        frequency=60,
+        frequency=10,
         blocking=False,
     )
 
@@ -100,38 +102,55 @@ def main():
     while True:
         # Read data from YARP ports
         action = action_reader.read()
-
-        if 
+        
+        # Get the action packet with name 'action' and access its sequence number
+        for packet in action:
+            if packet.name == 'action':
+                seq_number = packet.seq_number
+                
+                # Check if sequence number increases by exactly 1
+                if prev_seq_number is not None:
+                    if seq_number - prev_seq_number == 1:
+                        print(f"Action sequence number: {seq_number} (Correct increment by 1)")
+                    else:
+                        print(f"WARNING: Sequence number jumped from {prev_seq_number} to {seq_number} (increment of {seq_number - prev_seq_number})")
+                else:
+                    print(f"Initial action sequence number: {seq_number}")
+                    
+                prev_seq_number = seq_number
+                break
 
         time.sleep(1/10)
         obs = obs_reader.read()
         
-        def action_fn():
-            for p in action:
-                if p.name in ActionInterface.action_fmt['fingers']:
-                    p.name = f'{eef_paths[0] if p.name.startswith('l_') else eef_paths[1]}/target/{p.name}'
-                else:
-                    p.name = f'target/{p.name}'
-
-                yield p
+        # def action_fn():
+        #     for p in action:
+        #         if p.name in ActionInterface.action_fmt['fingers']:
+        #             p.name = f'{eef_paths[0] if p.name.startswith('l_') else eef_paths[1]}/target/{p.name}'
+        #         else:
+        #             p.name = f'target/{p.name}'
 
         # Visualize
         visualizer.log(
             joints=obs['encoders'],
             images={f"{camera_path}/cameras/agentview_rgb": obs["camera"]['rgb']},
-            depths={f"{camera_path}/cameras/agentview_depth": obs["camera"]['depth']},
-            poses=action_fn(),
+            # depths={f"{camera_path}/cameras/agentview_depth": obs["camera"]['depth']},
+            poses=action,
             _time=time.perf_counter(),
             timestamp=i * 0.1,
             static=False,
         )
         # Save
-        data_logger.log({pkt.name: pkt.data.numpy() for pkt in flatten_dict(obs)}, {pkt.name: pkt.data.numpy() for pkt in action})
+        data_logger.log({pkt.name: pkt.data for pkt in [obs['camera']['rgb']] + obs['encoders']}, {pkt.name: pkt.data.numpy() for pkt in action if pkt.name != 'action'})
         print(1 / (time.perf_counter() - prev_t))
         prev_t = time.perf_counter()
 
+        if i == 50:
+            break
+
         i += 1
         # time.sleep(0.05)
+    data_logger.end_episode()
 
 
 if __name__ == "__main__":

@@ -120,7 +120,8 @@ class Visualizer:
 
         # Log reference frames
         for packet in poses:
-            self.log_stats(packet, static)
+            if packet.name == 'action':
+                self.log_stats(packet, static)
             # log_frame(packet.name, packet.data, self.rec, static=static)
 
         # Log cameras

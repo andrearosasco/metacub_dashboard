@@ -32,7 +32,7 @@ class ActionInterface:
         while not yarp.Network.connect(f'{remote_prefix}/action:o', f'{local_prefix}/action:i'): 
             time.sleep(0.1)
 
-        self.prev_action_packet = None
+        self.prev_freq_packet = None
 
     def read(self):
         action_packets = []
@@ -55,16 +55,19 @@ class ActionInterface:
                 name=k,
                 data=v,
                 data_type="pose",
-                timestamp=stamp.getTime(),
-                seq_number=stamp.getCount(),
-                read_timestamp=read_time,
-                read_delay=read_delay,
-                read_attempts=read_attempts,
             )
-            action_packet.compute_frequency(self.prev_action_packet)
             action_packets.append(action_packet)
-
-        self.prev_action_packet = action_packets[0]
+        action_freq = DataPacket(
+            name='action',
+            timestamp=stamp.getTime(),
+            seq_number=stamp.getCount(),
+            read_timestamp=read_time,
+            read_delay=read_delay,
+            read_attempts=read_attempts,
+        )
+        action_freq.compute_frequency(self.prev_freq_packet)
+        action_packets.append(action_freq)
+        self.prev_freq_packet = action_freq
         return action_packets
 
     def cast_bottle(self, bottle, format, name=''):
@@ -92,9 +95,9 @@ class ActionInterface:
         for key, value in data.items():
             assert value is not None 
         data_out['neck'] = Pose(ori=np.array(data['neck']).reshape(3,3))
-        data_out['left_arm'] = Pose(pos=data['left_arm'][:3], ori=R.from_quat(data['left_arm'][3:]).as_matrix())
-        data_out['right_arm'] = Pose(pos=data['right_arm'][:3], ori=R.from_quat(data['right_arm'][3:]).as_matrix())
-        data_out.update({name: Pose(pos=finger) for name, finger in zip(ActionInterface.action_fmt['fingers'], data['fingers'])})
+        data_out['left_arm'] = Pose(pos=np.array(data['left_arm'][:3]), ori=R.from_quat(data['left_arm'][3:]).as_matrix())
+        data_out['right_arm'] = Pose(pos=np.array(data['right_arm'][:3]), ori=R.from_quat(data['right_arm'][3:]).as_matrix())
+        data_out.update({name: Pose(pos=np.array(finger)) for name, finger in zip(ActionInterface.action_fmt['fingers'], data['fingers'])})
 
         return data_out
         

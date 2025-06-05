@@ -80,7 +80,7 @@ class EncodersInterface:
             port = yarp.BufferedPortVector()
             port.open(f"{local_prefix}/{board}/state:i")
             while not yarp.Network.connect(
-                f"{remote_prefix}/{board}/state:o", f"{local_prefix}/{board}/state:i"
+                f"{remote_prefix}/{board}/state:o", f"{local_prefix}/{board}/state:i", 'tcp'
             ):
                 print(f"Waiting for {remote_prefix}/{board}/state:o port to connect...")
                 time.sleep(0.1)

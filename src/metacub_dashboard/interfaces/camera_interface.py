@@ -9,7 +9,7 @@ class CameraInterface:
     def __init__(self, remote_prefix, local_prefix, rgb_shape=None, depth_shape=None, concatenate=False):
         assert rgb_shape or depth_shape, "At least one of rgb or depth must be True"
         assert (
-            remote_prefix.startswith("/")
+            (remote_prefix.startswith("/") or remote_prefix == "")
             and not remote_prefix.endswith("/")
             and local_prefix.startswith("/")
             and not local_prefix.endswith("/")
