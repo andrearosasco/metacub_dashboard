@@ -1,12 +1,13 @@
 import time
 from uuid import uuid4
 import numpy as np
+from metacub_dashboard.interfaces.action_interface import ActionInterface
 from metacub_dashboard.interfaces.camera_interface import CameraInterface
 from metacub_dashboard.interfaces.encoders_interface import EncodersInterface
 from metacub_dashboard.interfaces.utils.observation_reader import ObservationReader
-from metacub_dashboard.visualizer.visualizer import Visualizer, Pose, Camera
+from metacub_dashboard.visualizer.visualizer import Visualizer, Camera
 from metacub_dashboard.visualizer.utils.blueprint import build_blueprint
-from metacub_dashboard.data_logger.data_logger import DataLogger
+from metacub_dashboard.data_logger.data_logger import DataLogger, flatten_dict
 import os
 
 os.environ["YARP_ROBOT_NAME"] = "ergoCubSN002"
@@ -23,20 +24,21 @@ def main():
     # Initialize Streams
     yarp.Network.init()
 
-    # action_reader = ActionInterface("/metaControllClient/action:o",
-    #                      format={'left_arm': ['float']*7,'right_arm': ['float']*7,'fingers': ['float']*10}
-    # )
-
     id = uuid4()
+
+    action_reader = ActionInterface(
+        remote_prefix="/metaControllClient",
+        local_prefix=f"/metacub_dashboard/{id}",
+    )
+
     obs_reader = ObservationReader(
         {
-            # "camera": CameraInterface(
-            #     remote_prefix="/ergocubSim",
-            #     local_prefix=f"/metacub_dashboard/{id}",
-            #     rgb_shape=(640, 480),
-            #     depth_shape=(640, 480),
-            #     # concatenate=True,
-            # ),
+            "camera": CameraInterface(
+                remote_prefix="/ergocubSim",
+                local_prefix=f"/metacub_dashboard/{id}",
+                rgb_shape=(640, 480),
+                depth_shape=(640, 480),
+            ),
             "encoders": EncodersInterface(
                 remote_prefix="/ergocubSim",
                 local_prefix=f"/metacub_dashboard/{id}",
@@ -44,12 +46,11 @@ def main():
                 concatenate=True,
             ),
         },
-        frequency=10,
-        blocking=True,
+        frequency=60,
+        blocking=False,
     )
 
     # Create Visualizer
-
     urdf_path = yarp.ResourceFinder().findFileByName("model.urdf")
     urdf = urdf_parser.URDF.from_xml_file(urdf_path)
     urdf.path = urdf_path
@@ -58,15 +59,19 @@ def main():
         urdf.get_chain(root=urdf.get_root(), tip="realsense_depth_frame")[0::2]
     )
 
-    blueprint = build_blueprint(
-        image_paths=[
+    image_paths = [
             f"{camera_path}/cameras/agentview_rgb",
             f"{camera_path}/cameras/agentview_depth",
-        ],
-        eef_paths=[
+    ]
+
+    eef_paths = [
             "/".join(urdf.get_chain(root=urdf.get_root(), tip=eef)[0::2])
-            for eef in ["r_hand_palm", "l_hand_palm"]
-        ],
+            for eef in ["l_hand_palm", "r_hand_palm"]
+    ]
+
+    blueprint = build_blueprint(
+        image_paths=image_paths,
+        eef_paths=eef_paths,
         poses=["proprio", "action"],
     )
 
@@ -90,42 +95,39 @@ def main():
     # Connect Ports
     i = 0
 
+    prev_seq_number = None
     prev_t = time.perf_counter()
     while True:
         # Read data from YARP ports
+        action = action_reader.read()
+
+        if 
+
+        time.sleep(1/10)
         obs = obs_reader.read()
-        if obs is None:
-            print("No observation data received from YARP port. Retrying...")
-            continue
+        
+        def action_fn():
+            for p in action:
+                if p.name in ActionInterface.action_fmt['fingers']:
+                    p.name = f'{eef_paths[0] if p.name.startswith('l_') else eef_paths[1]}/target/{p.name}'
+                else:
+                    p.name = f'target/{p.name}'
 
-        # action = action_reader.read()
-
+                yield p
 
         # Visualize
         visualizer.log(
             joints=obs['encoders'],
-            # images={f"{camera_path}/cameras/agentview_rgb": obs["camera"]['rgb']},
-            # depths={f"{camera_path}/cameras/agentview_depth": obs["camera"]['depth']},
-            # poses={
-            #     "right_hand_target": Pose(
-            #         action["right_arm"][:3],
-            #         R.from_quat(action["right_arm"][3:]).as_matrix(),
-            #     ),
-            #     "left_hand_target": Pose(
-            #         action["left_arm"][:3],
-            #         R.from_quat(action["left_arm"][3:]).as_matrix(),
-            #     ),
-            # },
-            # cameras={},
-            # trajectories={},
+            images={f"{camera_path}/cameras/agentview_rgb": obs["camera"]['rgb']},
+            depths={f"{camera_path}/cameras/agentview_depth": obs["camera"]['depth']},
+            poses=action_fn(),
             _time=time.perf_counter(),
             timestamp=i * 0.1,
             static=False,
         )
         # Save
-        # data_logger.log(
-        # )
-        # print(1 / (time.perf_counter() - prev_t))
+        data_logger.log({pkt.name: pkt.data.numpy() for pkt in flatten_dict(obs)}, {pkt.name: pkt.data.numpy() for pkt in action})
+        print(1 / (time.perf_counter() - prev_t))
         prev_t = time.perf_counter()
 
         i += 1

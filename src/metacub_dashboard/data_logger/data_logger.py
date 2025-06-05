@@ -42,7 +42,7 @@ def dict_concat(d, acc=None, axis=0):
         if acc is None:
             acc = {}
         for k in d:
-            acc[k] = dict_concat(d[k], acc.get(k), axis=axis)
+            acc[k] = dict_concat(d[k].data, acc.get(k), axis=axis)
         return acc
     else:
         if not isinstance(d, np.ndarray):
@@ -108,6 +108,7 @@ class DataLogger:
 
         # Create a destination Zarr store
         self.path = path
+        Path(path).parent.mkdir(exist_ok=True)
         self.dest_store = zarr.storage.ZipStore(path, mode='w')
         self.dest_group = zarr.group(store=self.dest_store)
 

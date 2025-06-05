@@ -3,7 +3,7 @@ import math
 import os
 import time
 # os.environ['MESA_D3D12_DEFAULT_ADAPTER_NAME'] = 'NVIDIA'
-os.environ['VK_ICD_FILENAMES'] = 'C:\Windows\System32\DriverStore\FileRepository\nvdmegpu.inf_amd64_95b916fb18cfa9ac\nv-vk64.json'
+# os.environ['VK_ICD_FILENAMES'] = 'C:\Windows\System32\DriverStore\FileRepository\nvdmegpu.inf_amd64_95b916fb18cfa9ac\nv-vk64.json'
 # os.environ['WGPU_BACKEND'] = 'gl'
 # os.environ['WGPU_POWER_PREF'] = 'high'
 import sys
@@ -30,14 +30,14 @@ from scipy.spatial.transform import Rotation as R
 
 from matplotlib import pyplot as plt
 def log_frame(name, pose, rec, scale=0.1, static=False):
-    rec.log(f'poses/{name}', rr.Transform3D(translation=pose.pos, mat3x3=pose.ori), static=static)
-    rec.log(f'poses/{name}/axes', rr.Arrows3D(origins=np.zeros([3,3]), vectors=np.eye(3) * scale, colors=np.eye(3)), static=static)
-    rec.log(f'poses/{name}/point', rr.Points3D([0,0,-0.04], labels=[f'{name} ({pose.grip})'], radii=[0.001, ]), static=static)
+    rec.log(f'{name}', rr.Transform3D(translation=pose.pos, mat3x3=pose.ori), static=static)
+    rec.log(f'{name}/axes', rr.Arrows3D(origins=np.zeros([3,3]), vectors=np.eye(3) * scale, colors=np.eye(3)), static=static)
+    rec.log(f'{name}/point', rr.Points3D([0,0,-0.04], labels=[f'{name.split('/')[-1]} ({pose.grip})'], radii=[0.001, ]), static=static)
 
     pose_array = np.concatenate([pose.pos, R.from_matrix(pose.ori).as_rotvec(), pose.grip])
     pose_names = ['x', 'y', 'z', 'ax', 'ay', 'az', 'g']
     for n, p, in zip(pose_names, pose_array):
-        rec.log(f'poses/{name}/components/{n}', rr.Scalars(p), static=static)
+        rec.log(f'{name}/components/{n}', rr.Scalars(p), static=static)
 
 class Visualizer:
     dir_path: Path
@@ -106,21 +106,22 @@ class Visualizer:
         for packet in joints:
             for joint_name, angle in zip(packet.data_labels, packet.data):
                 self.log_stats(packet, static)
-                self.urdf_logger.log(joint_name, angle)
-                self.rec.log('joints/' + joint_name, rr.Scalars(angle), static=static)
+                # self.urdf_logger.log(joint_name, angle)
+                # self.rec.log('joints/' + joint_name, rr.Scalars(angle), static=static)
 
         # Log the camera images
         for name, image in images.items():
             self.log_stats(image, static)
-            self.rec.log(name, rr.Image(image.data), static=static)
+            # self.rec.log(name, rr.Image(image.data), static=static)
         # Log the camera depths
         for name, depth in depths.items():
             self.log_stats(depth, static)
-            self.rec.log(name, rr.DepthImage(depth.data), static=static)
+            # self.rec.log(name, rr.DepthImage(depth.data), static=static)
 
         # Log reference frames
-        for name, pose in poses.items():
-           log_frame(name, pose, self.rec, static=static)
+        for packet in poses:
+            self.log_stats(packet, static)
+            # log_frame(packet.name, packet.data, self.rec, static=static)
 
         # Log cameras
         for name, camera in cameras.items():
@@ -142,11 +143,6 @@ class Visualizer:
             self.rec.log(f"trajectories/{name}/ori", rr.Transform3D(translation=traj[-1, :3], mat3x3=R.from_rotvec(traj[-1,3:6]).as_matrix(), axis_length=0.01), static=static)
             self.rec.log(f"trajectories/{name}", rr.LineStrips3D.from_fields(colors=colormap(traj[-1, -1])), static=static)
 
-@dataclass
-class Pose:
-    pos: np.ndarray
-    ori: np.ndarray
-    grip: np.ndarray = field(default_factory=lambda: np.array([0.0]))
 
 @dataclass
 class Camera:

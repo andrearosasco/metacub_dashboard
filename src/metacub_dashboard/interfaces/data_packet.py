@@ -1,5 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Self
+
+import numpy as np
 
 @dataclass
 class DataPacket:
@@ -21,3 +23,18 @@ class DataPacket:
 
         self.freq = ((self.seq_number - prev.seq_number) /
                      (self.timestamp - prev.timestamp))
+
+
+@dataclass
+class Pose:
+    """
+    A dataclass to represent pose with position, orientation, and grip state.
+
+    Attributes:
+        pos (np.ndarray | None): Position as a NumPy array. Defaults to [0, 0, 0].
+        ori (np.ndarray | None): Orientation as a NumPy array (identity matrix). Defaults to a 3x3 identity matrix.
+        grip (np.ndarray | None): Grip state as a NumPy array. Defaults to [0].
+    """
+    pos: np.ndarray | None = field(default_factory=lambda: np.array([0.0, 0.0, 0.0]))
+    ori: np.ndarray | None = field(default_factory=lambda: np.identity(3))
+    grip: np.ndarray | None = field(default_factory=lambda: np.array([0.0]))
