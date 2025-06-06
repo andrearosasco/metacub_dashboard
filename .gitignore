@@ -1,4 +1,7 @@
-
-# pixi environments
 .pixi
+pixi.lock
+
 *.egg-info
+**/__pycache__
+
+
