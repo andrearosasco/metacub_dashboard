@@ -1,5 +1,5 @@
 """
-Visualizer that works directly with Polars DataFrames (now the default).
+Pure Polars visualizer that works directly with Polars DataFrames.
 Eliminates the need for StreamData objects and wrapper classes.
 """
 from dataclasses import dataclass
@@ -16,7 +16,7 @@ import polars as pl
 
 from .utils.blueprint import build_blueprint
 from .utils.urdf_logger import URDFLogger
-from ..interfaces.data_packet import Pose
+from ..interfaces.stream_data import Pose
 
 
 def log_pose_frame(name: str, pose: Pose, rec: rr.RecordingStream, scale: float = 0.1, static: bool = False):
@@ -49,15 +49,15 @@ class Camera:
     height: int = 240
 
 
-class Visualizer:
+class PolarsVisualizer:
     """
-    Visualizer that works directly with Polars DataFrames (now the default).
+    Pure Polars visualizer that works directly with Polars DataFrames.
     Eliminates StreamData objects and wrapper classes.
     """
     
     def __init__(self, urdf, blueprint, robot_pose=None, gradio=True):
         rid = uuid4()
-        self.rec = rr.RecordingStream(application_id="metacub_dashboard", recording_id=rid)
+        self.rec = rr.RecordingStream(application_id="metacub_dashboard_pure_polars", recording_id=rid)
         
         if gradio:
             pass

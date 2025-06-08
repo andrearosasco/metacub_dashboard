@@ -56,8 +56,8 @@ class ObservationReader:
 def test_observation_reader():
     from uuid import uuid4
     import yarp
-    from metacub_dashboard.interfaces.camera_interface import CameraInterface
-    from metacub_dashboard.interfaces.encoders_interface import EncodersInterface
+    from metacub_dashboard.interfaces.interfaces import CameraInterface
+    from metacub_dashboard.interfaces.interfaces import EncodersInterface
 
     yarp.Network.init()
 

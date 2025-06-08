@@ -1,11 +1,12 @@
 """
-Complete example of the new clean StreamData architecture.
-Shows how poses, encoders, cameras work together with clean separation of concerns.
+Pure Polars implementation of MetaCub Dashboard.
+Uses native Polars DataFrames throughout with no wrapper classes.
 """
 import time
 import os
 from uuid import uuid4
 import numpy as np
+from typing import List, Dict, Any
 
 # Set environment before importing yarp
 os.environ["YARP_ROBOT_NAME"] = "ergoCubSN002"
@@ -13,36 +14,38 @@ import yarp
 from scipy.spatial.transform import Rotation as R
 from urdf_parser_py import urdf as urdf_parser
 import urdf_parser_py.xml_reflection.core as urdf_parser_core
+import polars as pl
 
-# Import new clean interfaces
-from metacub_dashboard.interfaces.action_interface import ActionInterface
-from metacub_dashboard.interfaces.camera_interface import CameraInterface
-from metacub_dashboard.interfaces.encoders_interface import EncodersInterface
-from metacub_dashboard.interfaces.stream_data import StreamData, Pose
+# Import interfaces
+from metacub_dashboard.interfaces.interfaces import (
+    ActionInterface, 
+    EncodersInterface, 
+    CameraInterface
+)
 from metacub_dashboard.interfaces.utils.control_loop_reader import ControlLoopReader
-from metacub_dashboard.visualizer.visualizer_new import Visualizer, Camera
+from metacub_dashboard.visualizer.visualizer import Visualizer, Camera
 from metacub_dashboard.visualizer.utils.blueprint import build_blueprint
+from metacub_dashboard.data_logger.logger import DataLogger as PolarsDataLogger
 from metacub_dashboard.data_logger.data_logger import DataLogger
-from metacub_dashboard.data_logger.stream_logger import StreamDataLogger
 
 urdf_parser_core.on_error = lambda x: x
 
 
 def main():
-    """Main function demonstrating the clean new architecture."""
-    print("🚀 Starting MetaCub Dashboard with new clean architecture...")
+    """Main function using pure Polars DataFrames throughout."""
+    print("🚀 Starting MetaCub Dashboard with Pure Polars...")
     
     # Initialize YARP
     yarp.Network.init()
     session_id = uuid4()
 
-    # 1. Create unified control loop reader with action and observation streams
-    print("📡 Setting up control loop reader...")
+    # 1. Create interfaces
+    print("📡 Setting up interfaces...")
     
     action_interface = ActionInterface(
         remote_prefix="/metaControllClient",
         local_prefix=f"/metacub_dashboard/{session_id}",
-        stream_name="target_poses"  # Clear semantic name
+        stream_name="target_poses"
     )
 
     observation_interfaces = {
@@ -57,15 +60,14 @@ def main():
             remote_prefix="/ergocubSim",
             local_prefix=f"/metacub_dashboard/{session_id}",
             control_boards=["head", "left_arm", "right_arm", "torso"],
-            concatenate=False,  # Keep individual boards
             stream_name="robot_joints"
         ),
     }
 
     control_reader = ControlLoopReader(
         action_interface=action_interface,
-        observation_streams=observation_interfaces,
-        control_frequency=10.0,  # Hz - this now controls the entire loop timing
+        observation_interfaces=observation_interfaces,
+        control_frequency=10.0,
         blocking=False,
     )
 
@@ -89,83 +91,98 @@ def main():
     blueprint = build_blueprint(
         image_paths=image_paths,
         eef_paths=eef_paths,
-        poses=["target_poses", "robot_joints"],  # Clear semantic names
+        poses=["target_poses", "robot_joints"],
     )
 
     visualizer = Visualizer(urdf=urdf, blueprint=blueprint, gradio=False)
 
-    # 3. Set up data logging with StreamDataLogger wrapper
+    # 3. Set up data logging
     print("💾 Setting up data logging...")
     
-    base_logger = DataLogger(
-        path="assets/dataset_new.zarr.zip", 
-        flush_every=200, 
+    base_data_logger = DataLogger(
+        path="assets/dataset.zarr.zip",
+        flush_every=200,
         exist_ok=True
     )
-    data_logger = StreamDataLogger(base_logger)
+    data_logger = PolarsDataLogger(base_data_logger)
 
-    # 4. Main execution loop with unified control timing
-    print("🔄 Starting control loop...")
+    # 4. Main execution loop with DataFrame processing
+    print("🔄 Starting control loop with DataFrame processing...")
     
     iteration = 0
     prev_time = time.perf_counter()
     
     try:
-        while iteration < 50:  # Run for 50 iterations as demo
-            # Read synchronized action/observation pair at control frequency
+        while iteration < 50:
+            # Read synchronized action/observation pair as pure DataFrames
             control_data = control_reader.read()
             
-            # Extract action and observation streams
-            pose_stream = control_data.action_stream
-            observation_streams = control_data.observation_streams
+            if control_data is None:
+                continue
+                
+            # ====== DATAFRAME PROCESSING ======
             
-            # Step 1: Filter streams by type using StreamData methods
-            camera_streams = StreamData.get_streams_by_type(observation_streams, "camera")
-            encoder_streams = StreamData.get_streams_by_type(observation_streams, "encoders")
+            # Extract DataFrames directly
+            action_df = control_data.actions_df
+            observation_df = control_data.observations_df
             
-            # Step 2: Apply entity path rules using StreamData processor
-            processed_encoder_streams = (
-                StreamData.create_processor()
-                .add_rule(
-                    condition=lambda s: "left_arm" in s.name,
-                    action=lambda s: setattr(s, 'entity_path', f"{eef_paths[0]}/fingers")
-                )
-                .add_rule(
-                    condition=lambda s: "right_arm" in s.name,
-                    action=lambda s: setattr(s, 'entity_path', f"{eef_paths[1]}/fingers")
-                )
-                .add_rule(
-                    condition=lambda s: "left_arm" not in s.name and "right_arm" not in s.name,
-                    action=lambda s: setattr(s, 'entity_path', "joints")
-                )
-                .process_streams(encoder_streams)
-            )
+            # Step 1: Filter observation streams by type using native Polars
+            camera_df = observation_df.filter(pl.col("stream_type") == "camera")
+            encoder_df = observation_df.filter(pl.col("stream_type") == "encoders")
             
-            # Log to visualizer with clean separation
-            visualizer.log(
-                poses_streams=[pose_stream],  # Target poses
-                encoders_streams=processed_encoder_streams,  # Generator with entity paths
-                camera_streams=camera_streams,  # RGB/depth images
+            # Step 2: Apply entity paths using Polars when/then/otherwise
+            processed_encoder_df = encoder_df.with_columns([
+                pl.when(pl.col("name").str.contains("left_arm"))
+                .then(pl.lit(f"{eef_paths[0]}/fingers"))
+                .when(pl.col("name").str.contains("right_arm"))  
+                .then(pl.lit(f"{eef_paths[1]}/fingers"))
+                .otherwise(pl.lit("joints"))
+                .alias("entity_path")
+            ])
+            
+            # Step 3: Combine processed data using pl.concat
+            all_observation_df = pl.concat([camera_df, processed_encoder_df])
+            
+            # ====== PURE POLARS VISUALIZER ======
+            
+            # Log to visualizer with pure DataFrames
+            visualizer.log_dataframes(
+                poses_df=action_df,
+                encoders_df=processed_encoder_df,
+                camera_df=camera_df,
                 timestamp=control_data.loop_timestamp,
                 static=False,
             )
             
-            # Data logging is now much simpler!
-            data_logger.log_streams(
-                observation_streams=observation_streams,
-                poses_stream=pose_stream
+            # ====== END PURE POLARS VISUALIZATION ======
+            
+            # Data logging with pure DataFrames
+            data_logger.log_dataframes(
+                observations_df=all_observation_df,
+                actions_df=action_df
             )
             
-            # Print diagnostic info
+            # Print diagnostic info using pure Polars analytics
             current_time = time.perf_counter()
             if iteration % 10 == 0:
                 collection_freq = 1 / (current_time - prev_time) if prev_time else 0
                 print(f"📊 Iteration {iteration}: Collection freq: {collection_freq:.1f} Hz")
-                print(f"   Pose freq: {pose_stream.metadata.frequency:.1f} Hz, missed: {pose_stream.metadata.missed_packets or 0}")
-                for stream in observation_streams:
-                    freq = stream.metadata.frequency or 0.0
-                    missed = stream.metadata.missed_packets or 0
-                    print(f"   {stream.name} freq: {freq:.1f} Hz, missed: {missed}")
+                
+                # Pure Polars diagnostics
+                print(f"   📷 Camera streams: {len(camera_df)}")
+                print(f"   ⚙️  Encoder streams: {len(processed_encoder_df)}")
+                print(f"   🎯 Pose streams: {len(action_df)}")
+                
+                # Show frequency statistics using Polars aggregation
+                if len(all_observation_df) > 0:
+                    freq_stats = all_observation_df.select([
+                        pl.col("metadata").struct.field("frequency").mean().alias("avg_freq"),
+                        pl.col("metadata").struct.field("frequency").max().alias("max_freq"),
+                        pl.col("metadata").struct.field("read_delay").mean().alias("avg_delay")
+                    ])
+                    stats = freq_stats.row(0, named=True)
+                    print(f"   📈 Avg freq: {stats['avg_freq']:.1f} Hz, Max: {stats['max_freq']:.1f} Hz")
+                    print(f"   ⏱️  Avg read delay: {stats['avg_delay']*1000:.1f} ms")
             
             prev_time = current_time
             iteration += 1
@@ -175,16 +192,17 @@ def main():
     
     finally:
         print("🧹 Cleaning up...")
-        data_logger.end_episode()  # Now includes diagnostic summary
+        
+        # End episode with pure Polars diagnostics
+        data_logger.end_episode()
         control_reader.close()
         yarp.Network.fini()
-        print("✅ Clean shutdown complete!")
-
+        print("✅ Pure Polars clean shutdown complete!")
 
 
 if __name__ == "__main__":
-    # Uncomment to test individual interfaces first
-    # demo_individual_interfaces()
+    # Uncomment to test pure Polars operations
+    # demo_pure_polars_operations()
     
-    # Run main application
+    # Run main application with pure Polars
     main()

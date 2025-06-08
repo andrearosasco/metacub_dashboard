@@ -1,122 +1,84 @@
 """
-Unified reader for control loop that manages action/observation pairs.
-Handles timing and synchronization between action commands and observations.
+Control loop reader using native Polars DataFrames (now the default).
 """
 import time
-from typing import Dict, List, Optional, Tuple
+import polars as pl
+from typing import Dict, Optional
 from dataclasses import dataclass
-
-from ..stream_data import StreamData, StreamInterface
+from ..interfaces import Interface
 
 
 @dataclass
 class ControlLoopData:
-    """Container for synchronized action/observation pair."""
-    action_stream: StreamData
-    observation_streams: List[StreamData]
+    """Container for control loop data using pure Polars DataFrames."""
+    actions_df: pl.DataFrame
+    observations_df: pl.DataFrame
     iteration: int
     loop_timestamp: float
 
 
 class ControlLoopReader:
-    """
-    Unified reader that manages control loop timing and action/observation synchronization.
+    """Control loop reader that manages timing and synchronization using native Polars DataFrames."""
     
-    The control loop works as follows:
-    1. Read action (what robot should do)
-    2. Sleep for control period to maintain frequency
-    3. Read observations (what robot sees/feels)
-    4. Return synchronized action/observation pair
-    """
-    
-    def __init__(self, 
-                 action_interface: StreamInterface,
-                 observation_streams: Dict[str, StreamInterface],
-                 control_frequency: float = 10.0,
-                 blocking: bool = False):
-        """
-        Args:
-            action_interface: Interface for reading action commands
-            observation_streams: Dict of observation interfaces keyed by name
-            control_frequency: Control loop frequency in Hz
-            blocking: Whether reads should block or return None if no data
-        """
+    def __init__(self, action_interface: Interface, 
+                 observation_interfaces: Dict[str, Interface],
+                 control_frequency: float = 10.0, blocking: bool = False):
         self.action_interface = action_interface
-        self.observation_streams = observation_streams
+        self.observation_interfaces = observation_interfaces
         self.control_frequency = control_frequency
-        self.control_period = 1.0 / control_frequency
         self.blocking = blocking
+        self.period = 1.0 / control_frequency
         self.iteration = 0
-        
-        print(f"ControlLoopReader: {control_frequency} Hz control loop")
-        print(f"Action: {action_interface.stream_name}")
-        print(f"Observations: {list(observation_streams.keys())}")
-    
+        self.next_read_time = time.perf_counter() + self.period
+
     def read(self) -> Optional[ControlLoopData]:
-        """
-        Execute one control loop iteration:
-        1. Read action
-        2. Sleep for control period  
-        3. Read observations
-        4. Return synchronized pair
-        """
-        loop_start = time.perf_counter()
+        """Read synchronized action/observation data as Polars DataFrames."""
+        current_time = time.perf_counter()
         
-        # 1. Read action (what robot should do)
-        try:
-            action_result = self.action_interface.read()
-            # Action should always be a single StreamData (not a list)
-            if isinstance(action_result, list):
-                # If for some reason action returns a list, take the first one
-                action_stream = action_result[0] if action_result else None
+        # Wait for next scheduled read time
+        if current_time < self.next_read_time:
+            if self.blocking:
+                time.sleep(self.next_read_time - current_time)
             else:
-                action_stream = action_result
-        except Exception as e:
-            print(f"Failed to read action: {e}")
-            if not self.blocking:
                 return None
-            raise
         
-        # 2. Sleep for control period to maintain frequency
-        elapsed = time.perf_counter() - loop_start
-        sleep_time = self.control_period - elapsed
-        if sleep_time > 0:
-            time.sleep(sleep_time)
+        self.next_read_time += self.period
         
-        # 3. Read observations (what robot sees/feels)
-        observation_streams = []
-        for name, interface in self.observation_streams.items():
-            try:
-                obs_result = interface.read()
-                if obs_result is not None:
-                    # Handle interfaces that return single StreamData or List[StreamData]
-                    if isinstance(obs_result, list):
-                        observation_streams.extend(obs_result)
-                    else:
-                        observation_streams.append(obs_result)
-            except Exception as e:
-                print(f"Failed to read {name}: {e}")
-                if not self.blocking:
-                    continue  # Skip this observation
-                raise
+        # Read action data
+        actions_df = self.action_interface.read()
+        actions_df = pl.DataFrame(schema=actions_df.schema if 'actions_df' in locals() else None)
+    
+        # Read observation data from all interfaces
+        observation_dfs = []
+        for name, interface in self.observation_interfaces.items():
+
+            obs_df = interface.read()
+            if len(obs_df) > 0:
+                observation_dfs.append(obs_df)
+
         
-        if not observation_streams and not self.blocking:
-            return None
+        # Combine all observation DataFrames
+        if observation_dfs:
+            observations_df = pl.concat(observation_dfs, how="vertical")
+        else:
+            observations_df = pl.DataFrame()
+            if self.blocking:
+                return None
         
-        # 4. Return synchronized action/observation pair
+        # Return synchronized data
         loop_timestamp = time.perf_counter()
         control_data = ControlLoopData(
-            action_stream=action_stream,
-            observation_streams=observation_streams,
+            actions_df=actions_df,
+            observations_df=observations_df,
             iteration=self.iteration,
             loop_timestamp=loop_timestamp
         )
         
         self.iteration += 1
         return control_data
-    
+
     def close(self):
         """Close all interfaces."""
         self.action_interface.close()
-        for interface in self.observation_streams.values():
+        for interface in self.observation_interfaces.values():
             interface.close()

@@ -3,7 +3,9 @@ Stream routing utilities for visualization.
 Handles entity path assignment and other visualization-specific stream processing.
 """
 from typing import List, Generator, Callable
-from ...interfaces.stream_data import StreamData, StreamCollection
+from dataclasses import asdict
+from ...interfaces.stream_data import StreamData
+from ...interfaces.polars_stream_data import StreamCollection
 
 
 class StreamRouter:
@@ -54,8 +56,31 @@ class StreamRouter:
         Returns:
             New StreamCollection with entity paths set
         """
-        routed_streams = list(self.route_streams(collection.to_list()))
-        return StreamCollection(routed_streams)
+        # Convert to StreamData objects, apply routing, then convert back to dicts
+        stream_data_list = collection.to_stream_data_list()
+        routed_streams = list(self.route_streams(stream_data_list))
+        
+        # Convert back to dictionaries for StreamCollection constructor
+        routed_dicts = []
+        for stream in routed_streams:
+            stream_dict = {
+                "name": stream.name,
+                "stream_type": stream.stream_type,
+                "entity_path": stream.entity_path,
+                "data": stream.data,
+                "metadata": {
+                    "timestamp": stream.metadata.timestamp,
+                    "seq_number": stream.metadata.seq_number,
+                    "read_timestamp": stream.metadata.read_timestamp,
+                    "read_delay": stream.metadata.read_delay,
+                    "read_attempts": stream.metadata.read_attempts,
+                    "frequency": stream.metadata.frequency,
+                    "missed_packets": stream.metadata.missed_packets
+                }
+            }
+            routed_dicts.append(stream_dict)
+        
+        return StreamCollection(routed_dicts)
 
 
 def create_default_router(eef_paths: List[str]) -> StreamRouter:
