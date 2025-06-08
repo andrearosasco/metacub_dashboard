@@ -3,5 +3,4 @@ pixi.lock
 
 *.egg-info
 **/__pycache__
-
-
+assets/

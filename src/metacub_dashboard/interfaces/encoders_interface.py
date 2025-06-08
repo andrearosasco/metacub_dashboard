@@ -1,9 +1,8 @@
 import yarp
 import time
 import numpy as np
-from collections import defaultdict
 
-from metacub_dashboard.interfaces.data_packet import DataPacket
+from metacub_dashboard.interfaces.stream_data import StreamInterface, StreamData
 
 
 board_joints = {
@@ -58,14 +57,16 @@ board_joints = {
 }
 
 
-class EncodersInterface:
+class EncodersInterface(StreamInterface):
     def __init__(
         self,
         remote_prefix,
         local_prefix,
         control_boards: list[str],
         concatenate: bool = False,
+        stream_name: str = "encoders"
     ):
+        super().__init__()
         assert (
             remote_prefix.startswith("/")
             and not remote_prefix.endswith("/")
@@ -75,7 +76,9 @@ class EncodersInterface:
 
         self.encoders = {}
         self.concatenate = concatenate
+        self.stream_name = stream_name
 
+        # Connect control boards 
         for board in control_boards:
             port = yarp.BufferedPortVector()
             port.open(f"{local_prefix}/{board}/state:i")
@@ -86,45 +89,100 @@ class EncodersInterface:
                 time.sleep(0.1)
             self.encoders[board] = port
 
-        self.prev_encoder_packet = defaultdict(lambda: None)
-        self.read()
+        # Test connection and establish frequency baseline
+        self._initial_read()
 
-    def read(self):
-        stamp = yarp.Stamp()
-        encoder_package = {}
+    def _initial_read(self):
+        """Perform initial reads to establish frequency baseline."""
+        print(f"Establishing frequency baseline for {self.stream_name}...")
+        
+        # Perform 2-3 reads to establish frequency
+        for i in range(3):
+            try:
+                self.read()
+                time.sleep(0.1)  # Small delay between reads
+            except Exception as e:
+                print(f"Warning: Initial read {i+1} failed: {e}")
+                continue
+        
+        print(f"Frequency baseline established for {self.stream_name}")
 
-        for name, port in self.encoders.items():
+    def read(self) -> list[StreamData]:
+        """Read encoder data from all boards and return separate StreamData for each."""
+        encoder_streams = []
+
+        # Read from each port separately to get individual metadata
+        for board_name, port in self.encoders.items():
+            stamp = yarp.Stamp()
+            
             s = yarp.now()
             read_attempts = 0
             while (bottle := port.read(False)) is None:
                 read_attempts += 1
-
+            
             read_time = yarp.now()
             read_delay = read_time - s
-
             port.getEnvelope(stamp)
-
-            data = np.array(
-                [bottle[i] for i in range(bottle.length())], dtype=np.float64
-            )
-            encoder_package[name] = DataPacket(
-                name=name,
-                data=data,
-                data_labels=board_joints[name],
-                data_type="encoders",
+            
+            # Process board data
+            data = np.array([bottle[i] for i in range(bottle.length())], dtype=np.float64)
+            board_data = {
+                board_name: {
+                    'values': data,
+                    'labels': board_joints[board_name]
+                }
+            }
+            
+            # Create metadata for this specific board
+            metadata = self._create_metadata(
+                stream_name=f"{self.stream_name}_{board_name}",
                 timestamp=stamp.getTime(),
                 seq_number=stamp.getCount(),
                 read_timestamp=read_time,
                 read_delay=read_delay,
-                read_attempts=read_attempts,
+                read_attempts=read_attempts
             )
-            encoder_package[name].compute_frequency(self.prev_encoder_packet[name])
-            self.prev_encoder_packet[name] = encoder_package[name]
+
+            # Create StreamData for this board
+            stream_data = StreamData(
+                name=f"{self.stream_name}_{board_name}",  # e.g., "robot_joints_head"
+                data=board_data,
+                metadata=metadata,
+                stream_type="encoders"
+            )
+            
+            encoder_streams.append(stream_data)
 
         if self.concatenate:
-            return list(encoder_package.values())
+            # If concatenate is True, return a single StreamData with all boards combined
+            # but still preserve individual metadata in separate streams
+            concatenated_values = []
+            concatenated_labels = []
+            combined_data = {}
+            
+            for stream in encoder_streams:
+                board_name = list(stream.data.keys())[0]
+                board_info = stream.data[board_name]
+                concatenated_values.extend(board_info['values'])
+                concatenated_labels.extend(board_info['labels'])
+                combined_data[board_name] = board_info
+            
+            # Return both individual streams and concatenated stream
+            concatenated_stream = StreamData(
+                name=f"{self.stream_name}_concatenated",
+                data={
+                    'concatenated': {
+                        'values': np.array(concatenated_values),
+                        'labels': concatenated_labels
+                    },
+                    **combined_data  # Also include individual board data
+                },
+                metadata=encoder_streams[0].metadata,  # Use first board's metadata as representative
+                stream_type="encoders"
+            )
+            return encoder_streams + [concatenated_stream]
 
-        return encoder_package
+        return encoder_streams
 
     def close(self):
         for port in self.encoders.values():
@@ -145,9 +203,9 @@ def test_encoder_interface():
 
     try:
         for _ in range(30):
-            data = encoders.read()
-            for board, packet in data.items():
-                print(f"{board} frequency: {packet.freq} Hz")
+            stream_data = encoders.read()
+            print(f"Encoders frequency: {stream_data.metadata.frequency} Hz")
+            print(f"Available boards: {stream_data.get_data_names()}")
             time.sleep(0.1)
     except KeyboardInterrupt:
         print("Exiting...")

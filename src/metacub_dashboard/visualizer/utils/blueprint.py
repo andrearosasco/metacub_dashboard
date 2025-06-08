@@ -97,6 +97,7 @@ def build_blueprint(
                     TimeSeriesView(name='Read Delay', origin='streams', contents=['streams/read_delay/**']),
                     TimeSeriesView(name='Read Attempts', origin='streams', contents=['streams/read_attempts/**']),
                     TimeSeriesView(name='Read Timestamp', origin='streams', contents=['streams/read_timestamp/**']),
+                    TimeSeriesView(name='Missed Packets', origin='streams', contents=['streams/missed_packets/**']),
                     name='Streams',
                 ),
             ),

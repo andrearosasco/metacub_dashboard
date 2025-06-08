@@ -1,12 +1,14 @@
 import yarp
 import time
 import numpy as np
+from typing import List
 
-from interfaces.data_packet import DataPacket
+from metacub_dashboard.interfaces.stream_data import StreamInterface, StreamData
 
 
-class CameraInterface:
-    def __init__(self, remote_prefix, local_prefix, rgb_shape=None, depth_shape=None, concatenate=False):
+class CameraInterface(StreamInterface):
+    def __init__(self, remote_prefix, local_prefix, rgb_shape=None, depth_shape=None, stream_name="camera"):
+        super().__init__()
         assert rgb_shape or depth_shape, "At least one of rgb or depth must be True"
         assert (
             (remote_prefix.startswith("/") or remote_prefix == "")
@@ -17,7 +19,7 @@ class CameraInterface:
 
         self.rgb_shape = rgb_shape
         self.depth_shape = depth_shape
-        self.concatenate = concatenate
+        self.stream_name = stream_name
 
         if rgb_shape:
             self.rgb_port = yarp.BufferedPortImageRgb()
@@ -53,14 +55,29 @@ class CameraInterface:
                 print("Waiting for Depth port to connect...")
                 time.sleep(0.1)
 
-        self.prev_packets = {"rgb": None, "depth": None}
-        self.read()
+        # Test connection and establish frequency baseline
+        self._initial_read()
 
-    def read(self):
-        packets = {}
-        rgb_stamp, depth_stamp = yarp.Stamp(), yarp.Stamp()
+    def _initial_read(self):
+        """Perform initial reads to establish frequency baseline."""
+        print(f"Establishing frequency baseline for {self.stream_name}...")
+        
+        # Perform 2-3 reads to establish frequency
+        for i in range(3):
+            try:
+                self.read()
+                time.sleep(0.1)  # Small delay between reads
+            except Exception as e:
+                print(f"Warning: Initial read {i+1} failed: {e}")
+                continue
+        
+        print(f"Frequency baseline established for {self.stream_name}")
+
+    def read(self) -> List[StreamData]:
+        camera_streams = []
 
         if self.rgb_shape:
+            stamp = yarp.Stamp()
             s = yarp.now()
             read_attempts = 0
             while (data := self.rgb_port.read(False)) is None:
@@ -68,36 +85,42 @@ class CameraInterface:
 
             read_time = yarp.now()
             read_delay = read_time - s
-            self.rgb_port.getEnvelope(rgb_stamp)
+            self.rgb_port.getEnvelope(stamp)
 
             self.yarp_rgb_image.copy(data)
             rgb_image = np.frombuffer(self.rgb_buffer, dtype=np.uint8).reshape(
                 self.rgb_shape[1], self.rgb_shape[0], 3
             )
 
-            rgb_packet = DataPacket(
-                name="agentview_rgb",
-                data=rgb_image,
-                data_type="rgb",
-                timestamp=rgb_stamp.getTime(),
-                seq_number=rgb_stamp.getCount(),
+            # Create metadata for RGB stream
+            rgb_metadata = self._create_metadata(
+                stream_name=f"{self.stream_name}_rgb",
+                timestamp=stamp.getTime(),
+                seq_number=stamp.getCount(),
                 read_timestamp=read_time,
                 read_delay=read_delay,
-                read_attempts=read_attempts,
+                read_attempts=read_attempts
             )
-            rgb_packet.compute_frequency(self.prev_packets["rgb"])
-            self.prev_packets["rgb"] = rgb_packet
-            packets["rgb"] = rgb_packet
+
+            rgb_stream = StreamData(
+                name=f"{self.stream_name}_rgb",
+                data={"rgb": rgb_image},
+                metadata=rgb_metadata,
+                stream_type="camera"
+            )
+            camera_streams.append(rgb_stream)
 
         if self.depth_shape:
+            stamp = yarp.Stamp()
             s = yarp.now()
             read_attempts = 0
             while (data := self.depth_port.read(False)) is None:
                 read_attempts += 1
+            
             read_time = yarp.now()
             read_delay = read_time - s
-
-            self.depth_port.getEnvelope(depth_stamp)
+            self.depth_port.getEnvelope(stamp)
+            
             self.yarp_depth_image.copy(data)
             depth_image = (
                 np.frombuffer(self.depth_buffer, dtype=np.float32).reshape(
@@ -106,24 +129,25 @@ class CameraInterface:
                 * 1000
             ).astype(np.uint16)
 
-            depth_packet = DataPacket(
-                name="agentview_depth",
-                data=depth_image,
-                data_type="depth",
-                timestamp=depth_stamp.getTime(),
-                seq_number=depth_stamp.getCount(),
+            # Create metadata for depth stream
+            depth_metadata = self._create_metadata(
+                stream_name=f"{self.stream_name}_depth",
+                timestamp=stamp.getTime(),
+                seq_number=stamp.getCount(),
                 read_timestamp=read_time,
                 read_delay=read_delay,
-                read_attempts=read_attempts,
+                read_attempts=read_attempts
             )
-            depth_packet.compute_frequency(self.prev_packets["depth"])
-            self.prev_packets["depth"] = depth_packet
-            packets["depth"] = depth_packet
 
-        if self.concatenate:
-            return list(packets.values())
+            depth_stream = StreamData(
+                name=f"{self.stream_name}_depth",
+                data={"depth": depth_image},
+                metadata=depth_metadata,
+                stream_type="camera"
+            )
+            camera_streams.append(depth_stream)
 
-        return packets
+        return camera_streams
 
     def close(self):
         if self.rgb_shape:
@@ -142,14 +166,14 @@ def test_camera_interface():
         local_prefix=f"/metacub_dashboard/{uuid4()}",
         rgb_shape=(640, 480),
         depth_shape=(640, 480),
+        stream_name="test_camera"
     )
 
     for _ in range(30):
-        data = camera_interface.read()
-        if data["rgb"] is not None:
-            print(f"RGB Image freq: {data['rgb'].freq}")
-        if data["depth"] is not None:
-            print(f"Depth Image freq: {data['depth'].freq}")
+        stream_data_list = camera_interface.read()
+        for stream_data in stream_data_list:
+            print(f"Stream {stream_data.name}: frequency {stream_data.metadata.frequency} Hz")
+            print(f"Available data: {stream_data.get_data_names()}")
         time.sleep(1 / 20)
 
     camera_interface.close()

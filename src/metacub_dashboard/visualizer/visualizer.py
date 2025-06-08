@@ -4,7 +4,7 @@ import os
 import time
 # os.environ['MESA_D3D12_DEFAULT_ADAPTER_NAME'] = 'NVIDIA'
 # os.environ['VK_ICD_FILENAMES'] = 'C:\Windows\System32\DriverStore\FileRepository\nvdmegpu.inf_amd64_95b916fb18cfa9ac\nv-vk64.json'
-# os.environ['WGPU_BACKEND'] = 'gl'
+# os.environ['WGPU_BACKEND'] = 'vulkan'
 # os.environ['WGPU_POWER_PREF'] = 'high'
 import sys
 import threading
