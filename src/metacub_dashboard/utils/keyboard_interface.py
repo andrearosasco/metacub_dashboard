@@ -22,10 +22,11 @@ class KeyboardInterface:
         self.current_episode_state = "STOPPED"
         self.is_active = True
         self.app_output_buffer = []
-        self.max_app_lines = 10  # Keep last 10 lines of app output
+        self.max_app_lines = 15  # Keep last 15 lines of app output
+        self.display_lock = threading.Lock()  # Synchronize display updates
         self._setup_terminal()
         
-        # Start status update thread
+        # Start status update thread with longer interval
         self.status_thread = threading.Thread(target=self._status_update_loop, daemon=True)
         self.status_thread.start()
     
@@ -38,34 +39,39 @@ class KeyboardInterface:
     def _status_update_loop(self):
         """Background thread to periodically refresh the entire display."""
         while self.is_active:
-            self._refresh_display()
-            time.sleep(1.0)  # Update once per second
+            time.sleep(5.0)  # Update every 5 seconds instead of 1
+            if self.is_active:  # Check again after sleep
+                with self.display_lock:
+                    self._refresh_display()
     
     def _refresh_display(self):
         """Refresh the entire terminal display with status and app output."""
         if not sys.stdin.isatty():
             return
             
-        # Clear screen and move to top
+        # Clear screen and move to top - use direct sys.stdout.write to avoid recursion
         os.system('clear')
         
-        # Print header and status
-        print("="*80)
-        print("  MetaCub Dashboard - Episode Control")
-        print("="*80)
-        print("  Commands: 's'=start episode | 'e'=end episode | 'r'=reset | 'q'=quit")
-        print("="*80)
-        print(f"  Status: {self.current_episode_state} | {self.last_status}")
-        print("="*80)
-        print()
+        # Print header and status using direct sys.stdout.write
+        sys.stdout.write("="*80 + "\n")
+        sys.stdout.write("  MetaCub Dashboard - Episode Control\n")
+        sys.stdout.write("="*80 + "\n")
+        sys.stdout.write("  Commands: 's'=start episode | 'e'=end episode | 'r'=reset | 'q'=quit\n")
+        sys.stdout.write("="*80 + "\n")
+        sys.stdout.write(f"  Status: {self.current_episode_state} | {self.last_status}\n")
+        sys.stdout.write("="*80 + "\n")
+        sys.stdout.write("\n")
         
         # Print recent application output
         if self.app_output_buffer:
-            print("Recent Output:")
-            print("-" * 40)
+            sys.stdout.write("Recent Output:\n")
+            sys.stdout.write("-" * 40 + "\n")
             for line in self.app_output_buffer[-self.max_app_lines:]:
-                print(f"  {line}")
-            print("-" * 40)
+                sys.stdout.write(f"  {line}\n")
+            sys.stdout.write("-" * 40 + "\n")
+        else:
+            sys.stdout.write("No application output yet...\n")
+            sys.stdout.write("-" * 40 + "\n")
         
         sys.stdout.flush()
      
@@ -116,11 +122,13 @@ class KeyboardInterface:
         """
         timestamp = time.strftime('%H:%M:%S')
         formatted_message = f"[{timestamp}] {message}"
-        self.app_output_buffer.append(formatted_message)
         
-        # Keep only the most recent messages
-        if len(self.app_output_buffer) > self.max_app_lines * 2:
-            self.app_output_buffer = self.app_output_buffer[-self.max_app_lines:]
+        with self.display_lock:
+            self.app_output_buffer.append(formatted_message)
+            
+            # Keep only the most recent messages
+            if len(self.app_output_buffer) > self.max_app_lines * 2:
+                self.app_output_buffer = self.app_output_buffer[-self.max_app_lines:]
     
     def close(self):
         """Restore terminal settings and clean up."""
@@ -132,7 +140,9 @@ class KeyboardInterface:
         if self.old_settings is not None:
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_settings)
         
-        print("\nKeyboard interface closed.")
+        # Use direct sys.stdout.write to avoid recursion
+        sys.stdout.write("\nKeyboard interface closed.\n")
+        sys.stdout.flush()
 
 
 class StatusAwarePrinter:
@@ -150,6 +160,7 @@ class StatusAwarePrinter:
         message = ' '.join(str(arg) for arg in args)
         if message.strip():  # Only log non-empty messages
             self.keyboard_interface.log_app_output(message.strip())
+            # Don't immediately refresh display to avoid recursion
 
 
 def test_keyboard_interface():
@@ -189,10 +200,10 @@ def test_keyboard_interface():
             time.sleep(0.1)  # Small delay to prevent busy loop
             
     except KeyboardInterrupt:
-        print("\nTest interrupted by user")
+        sys.stdout.write("\nTest interrupted by user\n")
     finally:
         interface.close()
-        print("Keyboard interface test complete.")
+        sys.stdout.write("Keyboard interface test complete.\n")
 
 
 if __name__ == "__main__":

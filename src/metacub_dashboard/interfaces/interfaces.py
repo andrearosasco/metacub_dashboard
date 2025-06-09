@@ -84,17 +84,34 @@ class ActionInterface(Interface):
         # Initialize YARP port
         self.port = yarp.BufferedPortBottle()
         self.port.open(f"{local_prefix}/action:i")
-        yarp.Network.connect(f"{remote_prefix}/action:o", f"{local_prefix}/action:i")
+        while not yarp.Network.connect(f"{remote_prefix}/action:o", f"{local_prefix}/action:i"):
+            print(f"Waiting for {remote_prefix}/action:o port to connect...")
+            time.sleep(0.1)
+        
+        # Initialize reset port
+        self.reset_port = yarp.BufferedPortBottle()
+        self.reset_port.open(f"{local_prefix}/reset:o")
+        while not yarp.Network.connect(f"{local_prefix}/reset:o", f"{remote_prefix}/reset:i"):
+            print(f"Waiting for {remote_prefix}/reset:i port to connect...")
+            time.sleep(0.1)
         
         # Action format
         self.format = [
             ("neck", 7),
             ("left_arm", 7), 
-            ("right_arm", 7),
+            # ("right_arm", 7),
             ("fingers", 6)
         ]
 
         self.read()
+
+    def reset(self):
+        """Send reset signal to the action server."""
+        bottle = self.reset_port.prepare()
+        bottle.clear()
+        bottle.addInt32(1)  # Send boolean True as integer 1
+        self.reset_port.write()
+        print("🔄 Reset signal sent to action server")
 
     def read(self) -> pl.DataFrame:
         """Read action data and return as Polars DataFrame."""
@@ -120,16 +137,10 @@ class ActionInterface(Interface):
         # Parse bottle data
         poses_data = {}
         for pose_name, pose_size in self.format:
-            pose_list = None
-            for i in range(bottle.size()):
-                if bottle.get(i).asList().get(0).asString() == pose_name:
-                    pose_list = bottle.get(i).asList().get(1).asList()
-                    break
-            
-            if pose_list:
-                pose_array = np.array([pose_list.get(j).asFloat64() for j in range(pose_size)])
-                poses_data[pose_name] = pose_array            # Create metadata
+            vector = bottle.find(pose_name).asList()
 
+            pose_array = np.array([vector.get(j).asFloat64() for j in range(pose_size)])
+            poses_data[pose_name] = pose_array            
 
         # Create DataFrame row
         row_data = {
@@ -145,6 +156,8 @@ class ActionInterface(Interface):
     def close(self):
         """Close the YARP port."""
         self.port.close()
+        if hasattr(self, 'reset_port'):
+            self.reset_port.close()
 
 
 class EncodersInterface(Interface):

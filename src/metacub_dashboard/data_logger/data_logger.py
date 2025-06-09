@@ -149,7 +149,10 @@ class DataLogger:
 
             # Only try to access the zip file if we've actually written data
             try:
-                dest_store = zarr.storage.ZipStore(self.path)
+                if Path(self.path).exists():
+                    dest_store = zarr.storage.ZipStore(self.path, mode='a')  # append mode
+                else:
+                    dest_store = zarr.storage.ZipStore(self.path, mode='w')  # write mode
                 dest_group = zarr.group(store=dest_store, overwrite=False)
 
                 if 'episode_length' not in dest_group:
@@ -160,7 +163,7 @@ class DataLogger:
                     za.append([self.log_count])
                 
                 dest_store.close()
-            except zipfile.BadZipFile:
+            except (zipfile.BadZipFile, OSError, ValueError) as e:
                 print(f"Warning: Could not access {self.path} as a zip file. Resetting data logger.")
                 # Create new empty zip store
                 Path(self.path).parent.mkdir(exist_ok=True)
@@ -249,8 +252,22 @@ def write_data_with_copy(data, path):
 
 
 def write_data(data, path):
-    dest_store = zarr.storage.ZipStore(path)
-    dest_group = zarr.group(store=dest_store, overwrite=False)
+    # Ensure the parent directory exists
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    
+    # Try to open existing store, create new one if it doesn't exist or is corrupted
+    try:
+        if Path(path).exists():
+            dest_store = zarr.storage.ZipStore(path, mode='a')  # append mode
+        else:
+            dest_store = zarr.storage.ZipStore(path, mode='w')  # write mode
+        dest_group = zarr.group(store=dest_store, overwrite=False)
+    except (zipfile.BadZipFile, OSError, ValueError) as e:
+        # If the file is corrupted or has issues, remove it and create a new one
+        if Path(path).exists():
+            os.remove(path)
+        dest_store = zarr.storage.ZipStore(path, mode='w')
+        dest_group = zarr.group(store=dest_store)
 
     num_workers = 1
     executor = ThreadPoolExecutor(max_workers=num_workers)
@@ -277,7 +294,7 @@ def write_data(data, path):
             attrs = {}
 
         if key not in dest_group:
-            za = dest_group.require_array(
+            za = dest_group.require_dataset(
                     key, shape=source_array.shape,
                     dtype=source_array.dtype,
                     chunks=chunk_shape,
