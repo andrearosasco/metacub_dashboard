@@ -75,6 +75,12 @@ class Interface(ABC):
 
 class ActionInterface(Interface):
     """Action interface using native Polars DataFrames."""
+    format = {
+        'neck': ['float']*9,
+        'left_arm': ['float']*7,
+        # 'right_arm': [],
+        'fingers': [['float']*3]*10
+    }
     
     def __init__(self, remote_prefix: str, local_prefix: str, stream_name: str = "poses"):
         super().__init__(stream_name)
@@ -94,14 +100,6 @@ class ActionInterface(Interface):
         while not yarp.Network.connect(f"{local_prefix}/reset:o", f"{remote_prefix}/reset:i"):
             print(f"Waiting for {remote_prefix}/reset:i port to connect...")
             time.sleep(0.1)
-        
-        # Action format
-        self.format = [
-            ("neck", 7),
-            ("left_arm", 7), 
-            # ("right_arm", 7),
-            ("fingers", 6)
-        ]
 
         self.read()
 
@@ -119,7 +117,7 @@ class ActionInterface(Interface):
         
         start_time = yarp.now()
         read_attempts = 0
-        while (bottle := self.port.read(False)) is None:
+        while (bottle := self.port.read(False)) is None or (poses_data := self.parse_bottle(bottle, self.format)) is None:
             read_attempts += 1
             
         read_time = yarp.now()
@@ -133,14 +131,6 @@ class ActionInterface(Interface):
             read_delay=read_delay,
             read_attempts=read_attempts,
         )
-
-        # Parse bottle data
-        poses_data = {}
-        for pose_name, pose_size in self.format:
-            vector = bottle.find(pose_name).asList()
-
-            pose_array = np.array([vector.get(j).asFloat64() for j in range(pose_size)])
-            poses_data[pose_name] = pose_array            
 
         # Create DataFrame row
         row_data = {
@@ -158,6 +148,37 @@ class ActionInterface(Interface):
         self.port.close()
         if hasattr(self, 'reset_port'):
             self.reset_port.close()
+
+    def parse_bottle(self, bottle, format, name=''):
+        if isinstance(format, dict):
+            result = {}
+            for key in format:
+                parsed_value = self.parse_bottle(bottle.find(key), format[key], key)
+                if parsed_value is None:
+                    return None
+                result[key] = parsed_value
+            return result
+        elif isinstance(format, list):
+            if bottle.asList().size() == 0:
+                return None
+            result = []
+            for i in range(len(format)):
+                parsed_value = self.parse_bottle(bottle.asList().get(i), format[i])
+                if parsed_value is None:
+                    return None
+                result.append(parsed_value)
+            return result
+        elif isinstance(format, str):
+            if format == 'int':
+                return bottle.asInt()
+            elif format == 'float':
+                return bottle.asFloat64()
+            elif format == 'string':
+                return bottle.asString()
+            else:
+                raise ValueError(f"Unsupported format: {format}")
+        else:
+            raise ValueError(f"Unsupported format: {format}")
 
 
 class EncodersInterface(Interface):

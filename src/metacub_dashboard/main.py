@@ -108,37 +108,35 @@ def main():
 
         # Visualization setup with error handling
         print("🎨 Setting up visualization...")
-        try:
-            urdf_path = yarp.ResourceFinder().findFileByName("model.urdf")
-            if not urdf_path:
-                print("⚠️  model.urdf not found, skipping visualization setup")
-                visualizer = None
-            else:
-                print(f"📄 Found URDF at: {urdf_path}")
-                urdf = urdf_parser.URDF.from_xml_file(urdf_path)
-                urdf.path = urdf_path
-
-                # Build visualization blueprint
-                camera_path = "/".join(
-                    urdf.get_chain(root=urdf.get_root(), tip="realsense_depth_frame")[0::2]
-                )
-                image_paths = [f"{camera_path}/cameras/agentview_rgb"]
-                eef_paths = [
-                    "/".join(urdf.get_chain(root=urdf.get_root(), tip=eef)[0::2])
-                    for eef in ["l_hand_palm", "r_hand_palm"]
-                ]
-
-                blueprint = build_blueprint(
-                    image_paths=image_paths,
-                    eef_paths=eef_paths,
-                    poses=["target_poses", "robot_joints"],
-                )
-
-                visualizer = Visualizer(urdf=urdf, blueprint=blueprint, gradio=False)
-                print("✅ Visualizer created successfully")
-        except Exception as e:
-            print(f"⚠️  Visualization setup failed: {e}")
+        urdf_path = yarp.ResourceFinder().findFileByName("model.urdf")
+        if not urdf_path:
+            print("⚠️  model.urdf not found, skipping visualization setup")
             visualizer = None
+            exit()
+        else:
+            print(f"📄 Found URDF at: {urdf_path}")
+            urdf = urdf_parser.URDF.from_xml_file(urdf_path)
+            urdf.path = urdf_path
+
+            # Build visualization blueprint
+            camera_path = "/".join(
+                urdf.get_chain(root=urdf.get_root(), tip="realsense_depth_frame")[0::2]
+            )
+            image_paths = [f"{camera_path}/cameras/agentview_rgb"]
+            eef_paths = [
+                "/".join(urdf.get_chain(root=urdf.get_root(), tip=eef)[0::2])
+                for eef in ["l_hand_palm", "r_hand_palm"]
+            ]
+
+            blueprint = build_blueprint(
+                image_paths=image_paths,
+                eef_paths=eef_paths,
+                poses=["target_poses", "robot_joints"],
+            )
+
+            visualizer = Visualizer(urdf=urdf, blueprint=blueprint, gradio=False)
+            print("✅ Visualizer created successfully")
+
 
         # Data logging setup
         print("💾 Setting up data logging...")
