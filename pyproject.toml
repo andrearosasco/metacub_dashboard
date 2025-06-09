@@ -20,7 +20,6 @@ metaCub_dashboard = { path = ".", editable = true }
 
 [tool.pixi.dependencies]
 rerun-sdk = ">=0.23"
-opencv = ">=4.11.0,<5"
 scipy = ">=1.15.2,<2"
 h5py = ">=3.13.0,<4"
 trimesh = ">=4.6.9,<5"

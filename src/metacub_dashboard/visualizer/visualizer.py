@@ -2,11 +2,11 @@
 Visualizer that works directly with Polars DataFrames (now the default).
 Eliminates the need for StreamData objects and wrapper classes.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 import os
 os.environ['MESA_D3D12_DEFAULT_ADAPTER_NAME'] = 'NVIDIA'
-os.environ['WGPU_BACKEND'] = 'vulkan'
+# os.environ['WGPU_BACKEND'] = 'vulkan'
 import time
 import numpy as np
 import rerun as rr
@@ -16,7 +16,42 @@ import polars as pl
 
 from .utils.blueprint import build_blueprint
 from .utils.urdf_logger import URDFLogger
-from ..interfaces.data_packet import Pose
+
+@dataclass
+class Pose:
+    """
+    A dataclass to represent pose with position, orientation, and grip state.
+
+    Attributes:
+        pos (np.ndarray | None): Position as a NumPy array. Defaults to [0, 0, 0].
+        ori (np.ndarray | None): Orientation as a NumPy array (identity matrix). Defaults to a 3x3 identity matrix.
+        grip (np.ndarray | None): Grip state as a NumPy array. Defaults to [0].
+    """
+    pos: np.ndarray | None = field(default_factory=lambda: np.array([0.0, 0.0, 0.0]))
+    ori: np.ndarray | None = field(default_factory=lambda: np.identity(3))
+    grip: np.ndarray | None = field(default_factory=lambda: np.array([0.0]))
+    
+    def numpy(self) -> np.ndarray:
+        """
+        Returns a concatenated numpy array of position, flattened orientation, and grip.
+        
+        Returns:
+            np.ndarray: A 1D numpy array containing pos, flattened ori, and grip values
+        """
+        pos_array = self.pos.flatten() if self.pos is not None else np.array([0.0, 0.0, 0.0])
+        ori_array = self.ori.flatten() if self.ori is not None else np.identity(3).flatten()
+        grip_array = self.grip.flatten() if self.grip is not None else np.array([0.0])
+        
+        return np.concatenate([pos_array, ori_array, grip_array])
+    
+
+@dataclass
+class Camera:
+    pos: np.ndarray
+    ori: np.ndarray
+    fov: float = 45.0
+    width: int = 240
+    height: int = 240
 
 
 def log_pose_frame(name: str, pose: Pose, rec: rr.RecordingStream, scale: float = 0.1, static: bool = False):
@@ -40,13 +75,6 @@ def log_pose_frame(name: str, pose: Pose, rec: rr.RecordingStream, scale: float 
         rec.log(f'{name}/components/{n}', rr.Scalars(p), static=static)
 
 
-@dataclass
-class Camera:
-    pos: np.ndarray
-    ori: np.ndarray
-    fov: float = 45.0
-    width: int = 240
-    height: int = 240
 
 
 class Visualizer:
@@ -217,6 +245,7 @@ class Visualizer:
             collection_freq = 1.0 / (current_time - self.prev_time)
             self.rec.log('/streams/write_frequency/data_collection', 
                         rr.Scalars(collection_freq), static=static)
+        
         self.prev_time = current_time
         
         # Log poses

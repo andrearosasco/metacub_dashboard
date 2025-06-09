@@ -29,7 +29,7 @@ from scipy.spatial.transform import Rotation as R
 class DummyActionServer:
     """Streams dummy action data through YARP in ActionInterface format."""
     
-    def __init__(self, port_prefix="/metaControllClient", frequency=30.0):
+    def __init__(self, port_prefix="/metaControllClient", frequency=10.0):
         """
         Initialize the dummy action server.
         
@@ -206,7 +206,7 @@ Connect ActionInterface with remote_prefix matching the port-prefix.
     parser.add_argument(
         "--frequency", "-f",
         type=float,
-        default=30.0,
+        default=10.0,
         help="Publishing frequency in Hz (default: 30.0)"
     )
     

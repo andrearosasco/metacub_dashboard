@@ -92,7 +92,7 @@ class DataLogger:
     def __init__(self, path, flush_every=200, exist_ok=False):
         self.flush_every = flush_every
         self.log_count = 0
-        self.data = None
+        self.data_buffer = []  # Use list buffer instead of dict_concat
 
         if Path(path).exists() and not exist_ok:
             raise FileExistsError(f"Destination path '{path}' already exists")
@@ -104,7 +104,7 @@ class DataLogger:
                 os.remove(path)
 
         # self.num_workers = 1 # multiprocessing.cpu_count()
-        self.executor = ProcessPoolExecutor(max_workers=1)
+        self.executor = ThreadPoolExecutor(max_workers=1)
         self.futures = []
 
         # Create a destination Zarr store
@@ -113,20 +113,28 @@ class DataLogger:
         self.dest_store = zarr.storage.ZipStore(path, mode='w')
         self.dest_group = zarr.group(store=self.dest_store)
 
-    def log(self, obs, action):
-        step_data = {'action': action, 'obs': obs}
-        self.data = dict_concat(step_data, self.data)
-
-        if self.log_count % 100 == 99:
-            print(self.log_count, flush=True)
+    def log_dataframes_raw(self, observations_df, actions_df=None):
+        """Log raw DataFrames, defer conversion to background thread."""
+        # Store DataFrames as lightweight reference, avoid expensive conversion on main thread
+        step_data = {'observations_df': observations_df, 'actions_df': actions_df}
+        self.data_buffer.append(step_data)
 
         if self.log_count % self.flush_every == self.flush_every - 1:
-            # if self.process and self.process.is_alive(): raise ValueError("Data writing took too much time")
-            # self.process = multiprocessing.Process(target=write_data, args=(copy.deepcopy(self.data), self.path))
-            # self.process.start()
-            self.futures.append(self.executor.submit(write_data, copy.deepcopy(self.data), self.path))
-            # write_data(copy.deepcopy(self.data), self.path)
-            self.data = None
+            # Move entire buffer processing to background thread
+            self.futures.append(self.executor.submit(process_and_write_dataframes_buffer, self.data_buffer, self.path))
+            self.data_buffer = []
+
+        self.log_count += 1
+
+    def log(self, obs, action):
+        # Store data as lightweight reference, avoid expensive dict_concat on main thread
+        step_data = {'action': action, 'obs': obs}
+        self.data_buffer.append(step_data)
+
+        if self.log_count % self.flush_every == self.flush_every - 1:
+            # Move entire buffer processing to background thread
+            self.futures.append(self.executor.submit(process_and_write_buffer, self.data_buffer, self.path))
+            self.data_buffer = []
 
         self.log_count += 1
 
@@ -164,6 +172,82 @@ class DataLogger:
         self.log_count = 0
         
 
+def process_and_write_dataframes_buffer(data_buffer, path):
+    """Process buffer of DataFrame step data and write to Zarr file."""
+    import polars as pl
+    import numpy as np
+    
+    # Convert DataFrames to dict format in background thread
+    accumulated_data = None
+    for step_data in data_buffer:
+        observations_df = step_data['observations_df']
+        actions_df = step_data['actions_df']
+        
+        # Convert observations DataFrame to dictionary
+        obs_dict = {}
+        if observations_df is not None and len(observations_df) > 0:
+            for row in observations_df.iter_rows(named=True):
+                stream_name = row['name']
+                stream_type = row['stream_type']
+                stream_data = row['data']
+                
+                if stream_type == "camera":
+                    # Camera data: stream_name_rgb, stream_name_depth
+                    for data_type, image in stream_data.items():
+                        key = f"{stream_name}_{data_type}"
+                        obs_dict[key] = image
+                        
+                elif stream_type == "encoders":
+                    # Encoder data: stream_name_board_name for each board
+                    for board_name, board_data in stream_data.items():
+                        if isinstance(board_data, dict) and 'values' in board_data:
+                            key = f"{stream_name}_{board_name}"
+                            obs_dict[key] = board_data['values']
+                        else:
+                            key = f"{stream_name}_{board_name}"
+                            obs_dict[key] = board_data
+                else:
+                    # Generic handling
+                    for data_name, data_value in stream_data.items():
+                        key = f"{stream_name}_{data_name}"
+                        obs_dict[key] = np.array(data_value) if not isinstance(data_value, np.ndarray) else data_value
+        
+        # Convert actions DataFrame to dictionary
+        action_dict = {}
+        if actions_df is not None and len(actions_df) > 0:
+            for row in actions_df.iter_rows(named=True):
+                stream_data = row['data']
+                
+                for pose_name, pose_data in stream_data.items():
+                    if isinstance(pose_data, np.ndarray):
+                        action_dict[pose_name] = pose_data
+                    else:
+                        action_dict[pose_name] = np.array(pose_data)
+        
+        # Accumulate using dict_concat
+        step_dict = {'action': action_dict, 'obs': obs_dict}
+        accumulated_data = dict_concat(step_dict, accumulated_data)
+    
+    # Write the accumulated data
+    return write_data(accumulated_data, path)
+
+
+def process_and_write_buffer(data_buffer, path):
+    """Process buffer of step data and write to Zarr file."""
+    # Process buffer into concatenated data structure
+    accumulated_data = None
+    for step_data in data_buffer:
+        accumulated_data = dict_concat(step_data, accumulated_data)
+    
+    # Write the accumulated data
+    return write_data(accumulated_data, path)
+
+
+def write_data_with_copy(data, path):
+    """Write data function that handles deepcopy in background thread."""
+    return write_data(copy.deepcopy(data), path)
+
+
 def write_data(data, path):
     dest_store = zarr.storage.ZipStore(path)
     dest_group = zarr.group(store=dest_store, overwrite=False)
@@ -193,7 +277,7 @@ def write_data(data, path):
             attrs = {}
 
         if key not in dest_group:
-            za = dest_group.require_dataset(
+            za = dest_group.require_array(
                     key, shape=source_array.shape,
                     dtype=source_array.dtype,
                     chunks=chunk_shape,

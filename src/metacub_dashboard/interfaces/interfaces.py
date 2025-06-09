@@ -47,10 +47,13 @@ class Interface(ABC):
 
     def _create_metadata_dict(self, timestamp: float, seq_number: int, 
                              read_timestamp: float, read_delay: float, 
-                             read_attempts: int) -> Dict[str, Any]:
+                             read_attempts: int, metadata_key: str = None) -> Dict[str, Any]:
         """Create metadata dictionary with frequency calculation."""
+        # Use provided key or fall back to stream_name
+        key = metadata_key or self.stream_name
+        
         # Calculate frequency based on previous metadata
-        prev = self.prev_metadata.get(self.stream_name)
+        prev = self.prev_metadata.get(key)
         if prev and timestamp > prev["timestamp"]:
             dt = timestamp - prev["timestamp"]
             frequency = (seq_number - prev["seq_number"]) / dt if dt > 0 else 0.0
@@ -66,7 +69,7 @@ class Interface(ABC):
             "frequency": frequency,
         }
         
-        self.prev_metadata[self.stream_name] = metadata
+        self.prev_metadata[key] = metadata
         return metadata
 
 
@@ -91,6 +94,8 @@ class ActionInterface(Interface):
             ("fingers", 6)
         ]
 
+        self.read()
+
     def read(self) -> pl.DataFrame:
         """Read action data and return as Polars DataFrame."""
         stamp = yarp.Stamp()
@@ -104,6 +109,14 @@ class ActionInterface(Interface):
         read_delay = read_time - start_time
         self.port.getEnvelope(stamp)
         
+        metadata = self._create_metadata_dict(
+            timestamp=stamp.getTime(),
+            seq_number=stamp.getCount(),
+            read_timestamp=read_time,
+            read_delay=read_delay,
+            read_attempts=read_attempts,
+        )
+
         # Parse bottle data
         poses_data = {}
         for pose_name, pose_size in self.format:
@@ -115,16 +128,8 @@ class ActionInterface(Interface):
             
             if pose_list:
                 pose_array = np.array([pose_list.get(j).asFloat64() for j in range(pose_size)])
-                poses_data[pose_name] = pose_array
+                poses_data[pose_name] = pose_array            # Create metadata
 
-        # Create metadata
-        metadata = self._create_metadata_dict(
-            timestamp=stamp.getTime(),
-            seq_number=stamp.getCount(),
-            read_timestamp=read_time,
-            read_delay=read_delay,
-            read_attempts=read_attempts
-        )
 
         # Create DataFrame row
         row_data = {
@@ -178,6 +183,8 @@ class EncodersInterface(Interface):
                 time.sleep(0.1)
             self.encoders[board] = port
 
+        self.read()
+
     def read(self) -> pl.DataFrame:
         """Read encoder data and return as Polars DataFrame."""
         rows = []
@@ -211,7 +218,8 @@ class EncodersInterface(Interface):
                 seq_number=stamp.getCount(),
                 read_timestamp=read_time,
                 read_delay=read_delay,
-                read_attempts=read_attempts
+                read_attempts=read_attempts,
+                metadata_key=f"{self.stream_name}_{board_name}"
             )
             
             # Create DataFrame row
@@ -279,6 +287,8 @@ class CameraInterface(Interface):
             self.depth_buffer = bytearray(depth_shape[0] * depth_shape[1] * 4)
             self.yarp_depth_image.setExternal(self.depth_buffer, depth_shape[0], depth_shape[1])
 
+        self.read()
+
     def read(self) -> pl.DataFrame:
         """Read camera data and return as Polars DataFrame."""
         rows = []
@@ -305,7 +315,8 @@ class CameraInterface(Interface):
                 seq_number=stamp.getCount(),
                 read_timestamp=read_time,
                 read_delay=read_delay,
-                read_attempts=read_attempts
+                read_attempts=read_attempts,
+                metadata_key=f"{self.stream_name}_rgb"
             )
             
             # Create DataFrame row
@@ -343,7 +354,8 @@ class CameraInterface(Interface):
                 seq_number=stamp.getCount(),
                 read_timestamp=read_time,
                 read_delay=read_delay,
-                read_attempts=read_attempts
+                read_attempts=read_attempts,
+                metadata_key=f"{self.stream_name}_depth"
             )
             
             # Create DataFrame row
