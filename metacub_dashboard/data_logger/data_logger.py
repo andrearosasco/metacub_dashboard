@@ -173,7 +173,26 @@ class DataLogger:
                 self.dest_group = zarr.group(store=self.dest_store)
         
         self.log_count = 0
+
+    def discard_episode(self):
+        """Discard current episode data without saving to disk."""
+        # Store buffer length before clearing
+        buffer_length = len(self.data_buffer)
         
+        # Cancel any pending futures to avoid writing data
+        if self.futures:
+            for future in self.futures:
+                future.cancel()
+            self.futures = []
+        
+        # Clear the data buffer
+        self.data_buffer = []
+        
+        # Reset log count
+        self.log_count = 0
+        
+        print(f"Episode data discarded ({buffer_length} buffered steps cleared)")
+
 
 def process_and_write_dataframes_buffer(data_buffer, path):
     """Process buffer of DataFrame step data and write to Zarr file."""

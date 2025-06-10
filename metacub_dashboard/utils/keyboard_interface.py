@@ -75,12 +75,15 @@ class KeyboardInterface:
         
         sys.stdout.flush()
      
-    def get_command(self) -> Optional[str]:
+    def get_command(self, blocking: bool = False) -> Optional[str]:
         """
-        Get keyboard command non-blocking.
+        Get keyboard command, optionally blocking until a command is received.
         
+        Args:
+            blocking: If True, wait until a command is received
+            
         Returns:
-            str or None: Command character or None if no key pressed
+            str or None: Command character or None if no key pressed (when non-blocking)
             Commands:
             - 's': start episode
             - 'e': end episode  
@@ -90,22 +93,50 @@ class KeyboardInterface:
         if not sys.stdin.isatty():
             return None
         
-        # Check if input is available
-        if select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):
-            key = sys.stdin.read(1)
+        if blocking:
+            # Blocking mode: wait until a command is received
+            while True:
+                # Check if input is available
+                if select.select([sys.stdin], [], [], 0.01) == ([sys.stdin], [], []):
+                    key = sys.stdin.read(1)
+                    
+                    if key == 's':
+                        return 'start'
+                    elif key == 'e':
+                        return 'end'
+                    elif key == 'q':
+                        return 'quit'
+                    elif key == 'r':
+                        return 'reset'
+                    elif key == 'k':
+                        return 'keep'
+                    elif key == 'd':
+                        return 'discard'
+                    elif key == '\x03':  # Ctrl+C
+                        return 'quit'
+                # Small sleep to prevent busy waiting
+                time.sleep(0.01)
+        else:
+            # Non-blocking mode: check once and return
+            if select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):
+                key = sys.stdin.read(1)
+                
+                if key == 's':
+                    return 'start'
+                elif key == 'e':
+                    return 'end'
+                elif key == 'q':
+                    return 'quit'
+                elif key == 'r':
+                    return 'reset'
+                elif key == 'k':
+                    return 'keep'
+                elif key == 'd':
+                    return 'discard'
+                elif key == '\x03':  # Ctrl+C
+                    return 'quit'
             
-            if key == 's':
-                return 'start'
-            elif key == 'e':
-                return 'end'
-            elif key == 'q':
-                return 'quit'
-            elif key == 'r':
-                return 'reset'
-            elif key == '\x03':  # Ctrl+C
-                return 'quit'
-        
-        return None
+            return None
     
     def update_status(self, status: str):
         """Update the status message."""

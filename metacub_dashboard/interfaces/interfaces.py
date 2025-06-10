@@ -45,6 +45,11 @@ class Interface(ABC):
         """Close the interface."""
         pass
 
+    @abstractmethod
+    def reset(self):
+        """Reset the interface to initial state."""
+        pass
+
     def _create_metadata_dict(self, timestamp: float, seq_number: int, 
                              read_timestamp: float, read_delay: float, 
                              read_attempts: int, metadata_key: str = None) -> Dict[str, Any]:
@@ -110,6 +115,8 @@ class ActionInterface(Interface):
         bottle.addInt32(1)  # Send boolean True as integer 1
         self.reset_port.write()
         print("🔄 Reset signal sent to action server")
+        time.sleep(10)  # Allow time for reset to take effect
+        print("✅ Reset complete, ready for new actions")
 
     def read(self) -> pl.DataFrame:
         """Read action data and return as Polars DataFrame."""
@@ -268,6 +275,9 @@ class EncodersInterface(Interface):
             rows.append(row_data)
         
         return pl.DataFrame(rows, schema=STREAM_SCHEMA)
+    
+    def reset(self):
+        pass
 
     def close(self):
         """Close all YARP ports."""
@@ -404,6 +414,10 @@ class CameraInterface(Interface):
             rows.append(row_data)
         
         return pl.DataFrame(rows, schema=STREAM_SCHEMA)
+    
+    def reset(self):
+        """Reset the camera interface (no specific reset needed)."""
+        pass
 
     def close(self):
         """Close all YARP ports."""

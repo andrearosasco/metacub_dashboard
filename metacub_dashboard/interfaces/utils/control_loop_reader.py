@@ -1,5 +1,5 @@
 """
-Control loop reader using native Polars DataFrames (now the default).
+Control loop reader.
 """
 import time
 import numpy as np
@@ -11,7 +11,7 @@ from ..interfaces import Interface
 
 @dataclass
 class ControlLoopData:
-    """Container for control loop data using pure Polars DataFrames."""
+    """Container for control loop data"""
     actions_df: pl.DataFrame
     observations_df: pl.DataFrame
     iteration: int
@@ -19,22 +19,21 @@ class ControlLoopData:
 
 
 class ControlLoopReader:
-    """Control loop reader that manages timing and synchronization using native Polars DataFrames."""
+    """Control loop reader that manages timing and synchronization"""
     
     def __init__(self, action_interface: Interface, 
-                 observation_interfaces: Dict[str, Interface],
-                 control_frequency: float = 10.0, blocking: bool = False):
+                 observation_interfaces: Dict[str, Interface]):
         self.action_interface = action_interface
         self.observation_interfaces = observation_interfaces
-        self.control_frequency = control_frequency
-        self.blocking = blocking
-        self.period = 1.0 / control_frequency
         self.iteration = 0
-        self.next_read_time = time.perf_counter() + self.period
         self.prev_observations_df = None  # Store previous observation for next action
 
     def reset(self):
         """Initialize the control loop by reading the first observation."""
+        self.action_interface.reset(blocking=True)
+        for interface in self.observation_interfaces.values():
+            interface.reset()
+
         # Read initial observation data from all interfaces
         observation_dfs = []
         for name, interface in self.observation_interfaces.items():
@@ -49,10 +48,9 @@ class ControlLoopReader:
             self.prev_observations_df = pl.DataFrame()
         
         self.iteration = 0
-        self.next_read_time = time.perf_counter() + self.period
 
     def read(self) -> Optional[ControlLoopData]:
-        """Read synchronized action/observation data as Polars DataFrames.
+        """Read synchronized action/observation data.
         
         Actions are read first, then observations are read for the NEXT iteration.
         The observation returned is from the PREVIOUS iteration.
@@ -75,11 +73,8 @@ class ControlLoopReader:
             self.prev_observations_df = pl.concat(observation_dfs, how="vertical")
         else:
             self.prev_observations_df = pl.DataFrame()
-            if self.blocking and self.iteration == 0:  # Only return None on first iteration if blocking
-                return None
         
         # Return synchronized data (current action + previous observation)
-        loop_timestamp = time.perf_counter()
         control_data = ControlLoopData(
             actions_df=actions_df,
             observations_df=observations_df,
@@ -89,7 +84,7 @@ class ControlLoopReader:
         
         self.iteration += 1
         return control_data
-
+    
     def close(self):
         """Close all interfaces."""
         self.action_interface.close()

@@ -49,7 +49,13 @@ class DummyActionServer:
         self.port_name = f"{port_prefix}/action:o"
         self.port.open(self.port_name)
         
+        # Create reset input port
+        self.reset_port = yarp.BufferedPortBottle()
+        self.reset_port_name = f"{port_prefix}/reset:i"
+        self.reset_port.open(self.reset_port_name)
+        
         print(f"Dummy action server started on port: {self.port_name}")
+        print(f"Reset port available at: {self.reset_port_name}")
         print(f"Publishing at {frequency} Hz")
         print("Connect your ActionInterface to this port to receive data")
         
@@ -103,6 +109,18 @@ class DummyActionServer:
         
         return finger_poses
     
+    def check_reset(self):
+        """Check for reset signals and acknowledge them."""
+        bottle = self.reset_port.read(False)
+        if bottle is not None:
+            reset_value = bottle.get(0).asInt32()
+            if reset_value == 1:
+                print("🔄 Reset signal received - acknowledged")
+                # Could reset internal state here if needed
+                # For now, we just acknowledge the signal
+                return True
+        return False
+    
     def fill_bottle(self, bottle, t):
         """Fill YARP bottle with all pose data."""
         bottle.clear()
@@ -146,6 +164,9 @@ class DummyActionServer:
             while True:
                 start_time = time.time()
                 
+                # Check for reset signals
+                self.check_reset()
+                
                 # Get current time
                 t = time.time() - self.time_start
                 
@@ -179,6 +200,7 @@ class DummyActionServer:
     def close(self):
         """Clean shutdown."""
         self.port.close()
+        self.reset_port.close()
         yarp.Network.fini()
         print("Dummy action server stopped.")
 

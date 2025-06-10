@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import math
 import os
 os.environ['MESA_D3D12_DEFAULT_ADAPTER_NAME'] = 'NVIDIA'
-# os.environ['WGPU_BACKEND'] = 'vulkan'
+os.environ['WGPU_BACKEND'] = 'vulkan'
 import time
 import numpy as np
 import rerun as rr
