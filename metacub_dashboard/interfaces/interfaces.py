@@ -80,17 +80,23 @@ class Interface(ABC):
 
 class ActionInterface(Interface):
     """Action interface using native Polars DataFrames."""
-    format = {
+    
+    # Default format mappings for each control board type
+    DEFAULT_BOARD_FORMATS = {
         'neck': ['float']*9,
         'left_arm': ['float']*7,
-        # 'right_arm': [],
+        'right_arm': ['float']*7,
         'fingers': [['float']*3]*10
     }
     
-    def __init__(self, remote_prefix: str, local_prefix: str, stream_name: str = "poses"):
+    def __init__(self, remote_prefix: str, local_prefix: str, control_boards: List[str] = None, stream_name: str = "poses"):
         super().__init__(stream_name)
         self.remote_prefix = remote_prefix
         self.local_prefix = local_prefix
+        self.control_boards = control_boards or ["head", "left_arm", "right_arm", "torso"]
+        
+        # Build dynamic format based on control_boards
+        self.format = {board: self.DEFAULT_BOARD_FORMATS[board] for board in self.control_boards}
         
         # Initialize YARP port
         self.port = yarp.BufferedPortBottle()

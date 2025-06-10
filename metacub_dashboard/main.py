@@ -56,7 +56,7 @@ def main():
             action_interface=ActionInterface(
                 remote_prefix="/ergocub",
                 local_prefix=f"/metacub_dashboard/{session_id}",
-                action_boards=["head", "left_arm", "torso"],
+                control_boards=["head", "left_arm", "torso"],
                 stream_name="actions"
             ),
             observation_interfaces={
