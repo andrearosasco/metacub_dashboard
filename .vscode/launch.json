@@ -11,7 +11,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": "assets/episode_data.zarr.zip -e 0"
+            // "args": "assets/episode_data.zarr.zip -e 0"
         }
     ]
 }
