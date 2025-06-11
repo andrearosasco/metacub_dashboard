@@ -348,7 +348,7 @@ class CameraInterface(Interface):
             self.yarp_rgb_image.setExternal(self.rgb_buffer, self.rgb_shape[0], self.rgb_shape[1])
             
             while not yarp.Network.connect(
-                f"{self.remote_prefix}/depthCamera/rgbImage:r",
+                f"{self.remote_prefix}/depthCamera/rgbImage:o",
                 f"{self.local_prefix}/rgb:i",
                 "mjpeg",
             ):

@@ -42,14 +42,14 @@ def main():
             ),
             observation_interfaces={
                 'agentview': CameraInterface(
-                    remote_prefix="",
+                    remote_prefix="/ergocubSim",
                     local_prefix=f"/metacub_dashboard/{session_id}",
                     rgb_shape=(640, 480),
                     depth_shape=None,
                     stream_name="agentview"
                 ),
                 'encoders': EncodersInterface(
-                    remote_prefix="/ergocub",
+                    remote_prefix="/ergocubSim",
                     local_prefix=f"/metacub_dashboard/{session_id}",
                     control_boards=["head", "left_arm", "right_arm", "torso"],
                     stream_name="encoders"
@@ -64,7 +64,7 @@ def main():
         # Data logging setup
         print("💾 Setting up data logging...")
         base_data_logger = DataLogger(
-            path="assets/demo_data.zarr.zip",
+            path="assets/debug_data.zarr.zip",
             flush_every=100,
             exist_ok=True
         )
