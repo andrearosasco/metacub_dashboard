@@ -155,7 +155,12 @@ class DataLogger:
             return 0
 
     def end_episode(self):
-        # Only wait for futures if there are any
+        # First, flush any remaining data in the buffer
+        if self.data_buffer:
+            self.futures.append(self.executor.submit(process_and_write_dataframes_buffer, self.data_buffer, self.path))
+            self.data_buffer = []
+
+        # Wait for all futures to complete
         if self.futures:
             completed, _ = wait(self.futures)
             for f in completed:

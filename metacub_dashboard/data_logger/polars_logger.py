@@ -16,16 +16,8 @@ class PolarsDataLogger:
 
     def log_dataframes(self, observations_df: pl.DataFrame, actions_df: pl.DataFrame = None):
         """Log Polars DataFrames to the data logger."""
-        # Convert observations DataFrame to dictionary
-        obs_dict = self._observations_df_to_dict(observations_df)
-        
-        # Convert actions DataFrame to dictionary
-        action_dict = {}
-        if actions_df is not None and len(actions_df) > 0:
-            action_dict = self._actions_df_to_dict(actions_df)
-        
-        # Log to base logger
-        self.base_logger.log(obs_dict, action_dict)
+        # Use the DataFrame-specific logging method instead of converting to dict first
+        self.base_logger.log_dataframes_raw(observations_df, actions_df)
         
         # Store diagnostics
         self._store_diagnostics(observations_df, actions_df)

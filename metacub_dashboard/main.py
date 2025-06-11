@@ -237,19 +237,19 @@ def main():
                 decision = keyboard.get_command(blocking=True)
                 if decision == 'keep':
                     # Increment episode counter only when saving
-                    episode_count += 1
-                    print(f"✅ Keeping episode - saving as Episode {episode_count}...")
-                    keyboard.update_status(f"Episode {episode_count} - Saving...")
+                    print(f"✅ Keeping episode - saving as Episode {episode_count + 1}...")
+                    keyboard.update_status(f"Episode {episode_count + 1} - Saving...")
                     # End episode with pure Polars diagnostics (saves data)
                     data_logger.end_episode()
-                    print(f"💾 Episode {episode_count} saved successfully!")
+                    print(f"💾 Episode {episode_count + 1} saved successfully!")
+                    episode_count += 1
                     break
                 elif decision == 'discard':
                     print("🗑️  Discarding episode - data will not be saved...")
-                    keyboard.update_status(f"Episode {current_episode} - Discarding...")
+                    keyboard.update_status(f"Episode {current_episode + 1} - Discarding...")
                     # Discard episode data without saving
                     data_logger.discard_episode()
-                    print(f"🗑️  Episode {current_episode} discarded!")
+                    print(f"🗑️  Episode {current_episode + 1} discarded!")
                     break
         
 
