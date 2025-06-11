@@ -114,14 +114,15 @@ class ActionInterface(Interface):
 
         self.read()
 
-    def reset(self):
+    def reset(self, blocking: bool = True):
         """Send reset signal to the action server."""
         bottle = self.reset_port.prepare()
         bottle.clear()
         bottle.addInt32(1)  # Send boolean True as integer 1
         self.reset_port.write()
         print("🔄 Reset signal sent to action server")
-        time.sleep(10)  # Allow time for reset to take effect
+        if blocking:
+            time.sleep(10)  # Allow time for reset to take effect
         print("✅ Reset complete, ready for new actions")
 
     def read(self) -> pl.DataFrame:

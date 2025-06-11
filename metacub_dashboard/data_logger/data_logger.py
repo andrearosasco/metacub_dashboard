@@ -96,22 +96,23 @@ class DataLogger:
 
         if Path(path).exists() and not exist_ok:
             raise FileExistsError(f"Destination path '{path}' already exists")
-        if Path(path).exists():
-            # Open an existing Zarr store
-            if Path(path).is_dir():
-                shutil.rmtree(path)
-            else:
-                os.remove(path)
 
         # self.num_workers = 1 # multiprocessing.cpu_count()
         self.executor = ThreadPoolExecutor(max_workers=1)
         self.futures = []
 
-        # Create a destination Zarr store
+        # Create or open a destination Zarr store
         self.path = path
         Path(path).parent.mkdir(exist_ok=True)
-        self.dest_store = zarr.storage.ZipStore(path, mode='w')
-        self.dest_group = zarr.group(store=self.dest_store)
+        
+        if Path(path).exists() and exist_ok:
+            # Open existing store in append mode
+            self.dest_store = zarr.storage.ZipStore(path, mode='a')
+            self.dest_group = zarr.group(store=self.dest_store, overwrite=False)
+        else:
+            # Create new store
+            self.dest_store = zarr.storage.ZipStore(path, mode='w')
+            self.dest_group = zarr.group(store=self.dest_store)
 
     def log_dataframes_raw(self, observations_df, actions_df=None):
         """Log raw DataFrames, defer conversion to background thread."""
@@ -138,6 +139,21 @@ class DataLogger:
 
         self.log_count += 1
 
+    def get_episode_count(self) -> int:
+        """Get the number of episodes already saved in the dataset."""
+        if not Path(self.path).exists():
+            return 0
+            
+        try:
+            # Use the existing dest_group instead of opening a new connection
+            if 'episode_length' in self.dest_group:
+                return len(self.dest_group['episode_length'])
+            else:
+                return 0
+                
+        except (zipfile.BadZipFile, OSError, ValueError, AttributeError):
+            return 0
+
     def end_episode(self):
         # Only wait for futures if there are any
         if self.futures:
@@ -147,30 +163,30 @@ class DataLogger:
                     raise ValueError("Error while copying data")
             self.futures = []
 
-            # Only try to access the zip file if we've actually written data
-            try:
-                if Path(self.path).exists():
-                    dest_store = zarr.storage.ZipStore(self.path, mode='a')  # append mode
-                else:
-                    dest_store = zarr.storage.ZipStore(self.path, mode='w')  # write mode
-                dest_group = zarr.group(store=dest_store, overwrite=False)
+        # Only try to access the zip file if we've actually written data
+        try:
+            if Path(self.path).exists():
+                dest_store = zarr.storage.ZipStore(self.path, mode='a')  # append mode
+            else:
+                dest_store = zarr.storage.ZipStore(self.path, mode='w')  # write mode
+            dest_group = zarr.group(store=dest_store, overwrite=False)
 
-                if 'episode_length' not in dest_group:
-                    za = dest_group.require_dataset('episode_length', shape=(1,), dtype=int, chunks=(1,), compression=Blosc(), overwrite=False)
-                    za[0] = self.log_count
-                else:
-                    za = dest_group['episode_length']
-                    za.append([self.log_count])
-                
-                dest_store.close()
-            except (zipfile.BadZipFile, OSError, ValueError) as e:
-                print(f"Warning: Could not access {self.path} as a zip file. Resetting data logger.")
-                # Create new empty zip store
-                Path(self.path).parent.mkdir(exist_ok=True)
-                if Path(self.path).exists():
-                    os.remove(self.path)
-                self.dest_store = zarr.storage.ZipStore(self.path, mode='w')
-                self.dest_group = zarr.group(store=self.dest_store)
+            if 'episode_length' not in dest_group:
+                za = dest_group.require_dataset('episode_length', shape=(1,), dtype=int, chunks=(1,), compression=Blosc(), overwrite=False)
+                za[0] = self.log_count
+            else:
+                za = dest_group['episode_length']
+                za.append([self.log_count])
+            
+            dest_store.close()
+        except (zipfile.BadZipFile, OSError, ValueError) as e:
+            print(f"Warning: Could not access {self.path} as a zip file. Resetting data logger.")
+            # Create new empty zip store
+            Path(self.path).parent.mkdir(exist_ok=True)
+            if Path(self.path).exists():
+                os.remove(self.path)
+            self.dest_store = zarr.storage.ZipStore(self.path, mode='w')
+            self.dest_group = zarr.group(store=self.dest_store)
         
         self.log_count = 0
 

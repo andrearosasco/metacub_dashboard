@@ -77,23 +77,23 @@ def main():
 
         control_reader = ControlLoopReader(
             action_interface=ActionInterface(
-                remote_prefix="/ergocub",
+                remote_prefix="/metaControllClient",
                 local_prefix=f"/metacub_dashboard/{session_id}",
-                control_boards=["head", "left_arm", "torso"],
+                control_boards=["neck", "left_arm", "right_arm", "fingers"],
                 stream_name="actions"
             ),
             observation_interfaces={
                 'agentview': CameraInterface(
-                    remote_prefix="",
+                    remote_prefix="/ergocubSim",
                     local_prefix=f"/metacub_dashboard/{session_id}",
                     rgb_shape=(640, 480),
                     depth_shape=None,
                     stream_name="agentview"
                 ),
                 'encoders': EncodersInterface(
-                    remote_prefix="/ergocub",
+                    remote_prefix="/ergocubSim",
                     local_prefix=f"/metacub_dashboard/{session_id}",
-                    control_boards=["head", "left_arm", "torso"],
+                    control_boards=["head", "left_arm", "right_arm", "torso"],
                     stream_name="encoders"
                 )
             }
@@ -129,33 +129,36 @@ def main():
         # Data logging setup
         print("💾 Setting up data logging...")
         base_data_logger = DataLogger(
-            path="assets/episode_data.zarr.zip",
+            path="assets/debug_data.zarr.zip",
             flush_every=100,
             exist_ok=True
         )
         data_logger = PolarsDataLogger(base_data_logger)
         print("✅ Data logger created successfully")
 
-        keyboard.update_status("Ready - Press 's' to start episode")
-        keyboard.set_episode_state("STOPPED")
-        
-        episode_count = 0
+        # Initialize episode counter from existing dataset
+        episode_count = data_logger.get_episode_count()
+        if episode_count > 0:
+            print(f"📊 Found {episode_count} existing episodes in dataset")
         
         while True:  # Main application loop
             # Wait for start command (blocking)
+            keyboard.update_status(f"Ready - Press 's' for new episode (next: {episode_count + 1})")
+            keyboard.set_episode_state("READY")
             command = keyboard.get_command(blocking=True)
             if command == 'start':
-                episode_count += 1                
+                # Episode will be numbered when saved, not when started
+                current_episode = episode_count + 1  # Preview next episode number               
             elif command == 'quit':
                 break
 
             # Episode execution loop with DataFrame processing
-            print(f"🎬 Starting Episode {episode_count}")        
+            print(f"🎬 Starting Episode {current_episode} (preview)")        
             print("🔄 Resetting the robot...")
             
             # Initialize control loop with first observation
             control_reader.reset()
-            keyboard.update_status(f"Episode {episode_count} - Ready")
+            keyboard.update_status(f"Episode {current_episode} - Ready")
             keyboard.set_episode_state("READY")
             
             iteration = 0
@@ -166,14 +169,14 @@ def main():
                 # Check for episode control commands
                 command = keyboard.get_command()
                 if command == 'end':
-                    print(f"⏹️  Episode {episode_count} ended by user")
-                    keyboard.update_status(f"Episode {episode_count} - Ending...")
+                    print(f"⏹️  Episode {current_episode} ended by user")
+                    keyboard.update_status(f"Episode {current_episode} - Ending...")
                     keyboard.set_episode_state("STOPPED")
                     episode_active = False
                     break
                 if iteration == 1:
-                    print(f"🔄 Episode {episode_count} started - Recording data...")
-                    keyboard.update_status(f"Episode {episode_count} - Recording...")
+                    print(f"🔄 Episode {current_episode} started - Recording data...")
+                    keyboard.update_status(f"Episode {current_episode} - Recording...")
                     keyboard.set_episode_state("RECORDING")
                 
                 control_data = control_reader.read()
@@ -217,23 +220,25 @@ def main():
                 
                 # Update status periodically to show progress
                 if iteration % 100 == 0:
-                    keyboard.update_status(f"Episode {episode_count} - Recording... (iter: {iteration})")
+                    keyboard.update_status(f"Episode {current_episode} - Recording... (iter: {iteration})")
             
             # Episode cleanup
             episode_active = False
-            print(f"🧹 Cleaning up Episode {episode_count}...")
+            print(f"🧹 Cleaning up Episode {current_episode}...")
             
             # Ask user if they want to keep or discard the episode
             print("💾 Do you want to keep this episode?")
             print("   'k' - Keep episode (save to disk)")
             print("   'd' - Discard episode (delete data)")
-            keyboard.update_status(f"Episode {episode_count} - Keep (k) or Discard (d)?")
+            keyboard.update_status(f"Episode {current_episode} - Keep (k) or Discard (d)?")
             
             # Wait for keep/discard decision (blocking)
             while True:
                 decision = keyboard.get_command(blocking=True)
                 if decision == 'keep':
-                    print("✅ Keeping episode - saving to disk...")
+                    # Increment episode counter only when saving
+                    episode_count += 1
+                    print(f"✅ Keeping episode - saving as Episode {episode_count}...")
                     keyboard.update_status(f"Episode {episode_count} - Saving...")
                     # End episode with pure Polars diagnostics (saves data)
                     data_logger.end_episode()
@@ -241,15 +246,11 @@ def main():
                     break
                 elif decision == 'discard':
                     print("🗑️  Discarding episode - data will not be saved...")
-                    keyboard.update_status(f"Episode {episode_count} - Discarding...")
+                    keyboard.update_status(f"Episode {current_episode} - Discarding...")
                     # Discard episode data without saving
                     data_logger.discard_episode()
-                    print(f"🗑️  Episode {episode_count} discarded!")
+                    print(f"🗑️  Episode {current_episode} discarded!")
                     break
-
-            keyboard.update_status(f"Episode {episode_count} complete - Press 's' for new episode")
-            keyboard.set_episode_state("STOPPED")
-            print(f"✅ Episode {episode_count} complete! Press 's' to start new episode or 'q' to quit.")
         
 
         print("🧹 Final cleanup...")
@@ -275,8 +276,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # Uncomment to test pure Polars operations
-    # demo_pure_polars_operations()
-    
-    # Run main application with pure Polars
     main()
