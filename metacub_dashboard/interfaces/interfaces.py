@@ -36,6 +36,11 @@ class Interface(ABC):
         self.prev_metadata = {}  # Track previous metadata for frequency calculation
 
     @abstractmethod
+    def connect(self):
+        """Connect YARP ports after network initialization."""
+        pass
+
+    @abstractmethod
     def read(self) -> pl.DataFrame:
         """Read data and return as Polars DataFrame with enforced schema."""
         pass
@@ -98,18 +103,27 @@ class ActionInterface(Interface):
         # Build dynamic format based on control_boards
         self.format = {board: self.DEFAULT_BOARD_FORMATS[board] for board in self.control_boards}
         
-        # Initialize YARP port
+        # YARP ports will be created and opened in connect() method
+        self.port = None
+        self.reset_port = None
+
+    def connect(self):
+        """Connect YARP ports after network initialization."""
+        # Create and open YARP ports
         self.port = yarp.BufferedPortBottle()
-        self.port.open(f"{local_prefix}/action:i")
-        while not yarp.Network.connect(f"{remote_prefix}/action:o", f"{local_prefix}/action:i"):
-            print(f"Waiting for {remote_prefix}/action:o port to connect...")
+        self.port.open(f"{self.local_prefix}/action:i")
+        
+        self.reset_port = yarp.BufferedPortBottle()
+        self.reset_port.open(f"{self.local_prefix}/reset:o")
+        
+        # Connect action port
+        while not yarp.Network.connect(f"{self.remote_prefix}/action:o", f"{self.local_prefix}/action:i"):
+            print(f"Waiting for {self.remote_prefix}/action:o port to connect...")
             time.sleep(0.1)
         
-        # Initialize reset port
-        self.reset_port = yarp.BufferedPortBottle()
-        self.reset_port.open(f"{local_prefix}/reset:o")
-        while not yarp.Network.connect(f"{local_prefix}/reset:o", f"{remote_prefix}/reset:i"):
-            print(f"Waiting for {remote_prefix}/reset:i port to connect...")
+        # Connect reset port
+        while not yarp.Network.connect(f"{self.local_prefix}/reset:o", f"{self.remote_prefix}/reset:i"):
+            print(f"Waiting for {self.remote_prefix}/reset:i port to connect...")
             time.sleep(0.1)
 
         self.read()
@@ -159,8 +173,9 @@ class ActionInterface(Interface):
 
     def close(self):
         """Close the YARP port."""
-        self.port.close()
-        if hasattr(self, 'reset_port'):
+        if self.port:
+            self.port.close()
+        if self.reset_port:
             self.reset_port.close()
 
     def parse_bottle(self, bottle, format, name=''):
@@ -219,17 +234,24 @@ class EncodersInterface(Interface):
             "right_leg": [ "r_hip_pitch", "r_hip_roll", "r_hip_yaw", "r_knee", "r_ankle_pitch", "r_ankle_roll",],
         }
         
-        # Initialize YARP ports for each board
+        # Initialize YARP ports for each board (but don't connect yet)
         self.encoders = {}
-        for board in control_boards:
+
+    def connect(self):
+        """Connect YARP ports after network initialization."""
+        # Create and open YARP ports for each board
+        for board in self.control_boards:
             port = yarp.BufferedPortVector()
-            port.open(f"{local_prefix}/{board}/state:i")
-            while not yarp.Network.connect(
-                f"{remote_prefix}/{board}/state:o", f"{local_prefix}/{board}/state:i", 'tcp'
-            ):
-                print(f"Waiting for {remote_prefix}/{board}/state:o port to connect...")
-                time.sleep(0.1)
+            port.open(f"{self.local_prefix}/{board}/state:i")
             self.encoders[board] = port
+        
+        # Connect ports
+        for board, port in self.encoders.items():
+            while not yarp.Network.connect(
+                f"{self.remote_prefix}/{board}/state:o", f"{self.local_prefix}/{board}/state:i", 'tcp'
+            ):
+                print(f"Waiting for {self.remote_prefix}/{board}/state:o port to connect...")
+                time.sleep(0.1)
 
         self.read()
 
@@ -288,8 +310,9 @@ class EncodersInterface(Interface):
 
     def close(self):
         """Close all YARP ports."""
-        for port in self.encoders.values():
-            port.close()
+        if self.encoders:
+            for port in self.encoders.values():
+                port.close()
 
 
 class CameraInterface(Interface):
@@ -304,39 +327,51 @@ class CameraInterface(Interface):
         self.rgb_shape = rgb_shape
         self.depth_shape = depth_shape
         
-        # Initialize RGB port if needed
-        if rgb_shape:
+        # Port objects will be created in connect() method
+        self.rgb_port = None
+        self.depth_port = None
+        self.yarp_rgb_image = None
+        self.yarp_depth_image = None
+        self.rgb_buffer = None
+        self.depth_buffer = None
+
+    def connect(self):
+        """Connect YARP ports after network initialization."""
+        # Create and open RGB port if needed
+        if self.rgb_shape:
             self.rgb_port = yarp.BufferedPortImageRgb()
-            self.rgb_port.open(f"{local_prefix}/rgb:i")
+            self.rgb_port.open(f"{self.local_prefix}/rgb:i")
+            
+            self.yarp_rgb_image = yarp.ImageRgb()
+            self.yarp_rgb_image.resize(self.rgb_shape[0], self.rgb_shape[1])
+            self.rgb_buffer = bytearray(self.rgb_shape[0] * self.rgb_shape[1] * 3)
+            self.yarp_rgb_image.setExternal(self.rgb_buffer, self.rgb_shape[0], self.rgb_shape[1])
+            
             while not yarp.Network.connect(
-                f"{remote_prefix}/depthCamera/rgbImage:o",
-                f"{local_prefix}/rgb:i",
+                f"{self.remote_prefix}/depthCamera/rgbImage:r",
+                f"{self.local_prefix}/rgb:i",
                 "mjpeg",
             ):
                 print("Waiting for RGB port to connect...")
                 time.sleep(0.1)
-            
-            self.yarp_rgb_image = yarp.ImageRgb()
-            self.yarp_rgb_image.resize(rgb_shape[0], rgb_shape[1])
-            self.rgb_buffer = bytearray(rgb_shape[0] * rgb_shape[1] * 3)
-            self.yarp_rgb_image.setExternal(self.rgb_buffer, rgb_shape[0], rgb_shape[1])
         
-        # Initialize depth port if needed
-        if depth_shape:
+        # Create and open depth port if needed
+        if self.depth_shape:
             self.depth_port = yarp.BufferedPortImageFloat()
-            self.depth_port.open(f"{local_prefix}/depth:i")
+            self.depth_port.open(f"{self.local_prefix}/depth:i")
+            
+            self.yarp_depth_image = yarp.ImageFloat()
+            self.yarp_depth_image.resize(self.depth_shape[0], self.depth_shape[1])
+            self.depth_buffer = bytearray(self.depth_shape[0] * self.depth_shape[1] * 4)
+            self.yarp_depth_image.setExternal(self.depth_buffer, self.depth_shape[0], self.depth_shape[1])
+            
             while not yarp.Network.connect(
-                f"{remote_prefix}/depthCamera/depthImage:o",
-                f"{local_prefix}/depth:i",
+                f"{self.remote_prefix}/depthCamera/depthImage:o",
+                f"{self.local_prefix}/depth:i",
                 "fast_tcp+send.portmonitor+file.bottle_compression_zlib+recv.portmonitor+file.bottle_compression_zlib+type.dll",
             ):
                 print("Waiting for Depth port to connect...")
                 time.sleep(0.1)
-            
-            self.yarp_depth_image = yarp.ImageFloat()
-            self.yarp_depth_image.resize(depth_shape[0], depth_shape[1])
-            self.depth_buffer = bytearray(depth_shape[0] * depth_shape[1] * 4)
-            self.yarp_depth_image.setExternal(self.depth_buffer, depth_shape[0], depth_shape[1])
 
         self.read()
 
@@ -428,7 +463,7 @@ class CameraInterface(Interface):
 
     def close(self):
         """Close all YARP ports."""
-        if hasattr(self, 'rgb_port'):
+        if hasattr(self, 'rgb_port') and self.rgb_port:
             self.rgb_port.close()
-        if hasattr(self, 'depth_port'):
+        if hasattr(self, 'depth_port') and self.depth_port:
             self.depth_port.close()

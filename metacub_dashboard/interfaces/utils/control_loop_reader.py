@@ -4,6 +4,7 @@ Control loop reader.
 import time
 import numpy as np
 import polars as pl
+import yarp
 from typing import Dict, Optional
 from dataclasses import dataclass
 from ..interfaces import Interface
@@ -19,14 +20,25 @@ class ControlLoopData:
 
 
 class ControlLoopReader:
-    """Control loop reader that manages timing and synchronization"""
+    """Control loop reader that manages timing, synchronization, and YARP lifecycle"""
     
     def __init__(self, action_interface: Interface, 
                  observation_interfaces: Dict[str, Interface]):
+        # Initialize YARP Network
+        print("📡 Initializing YARP Network...")
+        yarp.Network.init()
+        
         self.action_interface = action_interface
         self.observation_interfaces = observation_interfaces
         self.iteration = 0
         self.prev_observations_df = None  # Store previous observation for next action
+        
+        # Connect all interfaces after YARP network is initialized
+        print("🔌 Connecting interface ports...")
+        self.action_interface.connect()
+        for name, interface in self.observation_interfaces.items():
+            interface.connect()
+        print("✅ All ports connected successfully")
 
     def reset(self):
         """Initialize the control loop by reading the first observation."""
@@ -86,7 +98,11 @@ class ControlLoopReader:
         return control_data
     
     def close(self):
-        """Close all interfaces."""
+        """Close all interfaces and finalize YARP."""
         self.action_interface.close()
         for interface in self.observation_interfaces.values():
             interface.close()
+        
+        # Finalize YARP Network
+        print("📡 Finalizing YARP Network...")
+        yarp.Network.fini()

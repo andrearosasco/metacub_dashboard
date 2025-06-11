@@ -33,25 +33,26 @@ class DataLogger:
             stream_data = row['data']
             
             if stream_type == "camera":
-                # Camera data: stream_name_rgb, stream_name_depth
+                # Camera data: use stream_name directly (already includes data type)
                 for data_type, image in stream_data.items():
-                    key = f"{stream_name}_{data_type}"
+                    # stream_name is already like "agentview_rgb", so use it directly
+                    key = stream_name
                     obs_dict[key] = image
                     
             elif stream_type == "encoders":
-                # Encoder data: stream_name_board_name for each board
+                # Encoder data: use stream_name directly (already includes board name)
                 for board_name, board_data in stream_data.items():
                     if isinstance(board_data, dict) and 'values' in board_data:
-                        key = f"{stream_name}_{board_name}"
+                        # stream_name is already like "encoders_head", so use it directly
+                        key = stream_name
                         obs_dict[key] = board_data['values']
                     else:
-                        key = f"{stream_name}_{board_name}"
+                        key = stream_name
                         obs_dict[key] = board_data
             else:
                 # Generic handling
-                for data_name, data_value in stream_data.items():
-                    key = f"{stream_name}_{data_name}"
-                    obs_dict[key] = np.array(data_value) if not isinstance(data_value, np.ndarray) else data_value
+                key = stream_name
+                obs_dict[key] = stream_data
         
         return obs_dict
 

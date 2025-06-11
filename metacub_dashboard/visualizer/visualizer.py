@@ -13,9 +13,15 @@ import rerun as rr
 from uuid import uuid4
 from scipy.spatial.transform import Rotation as R
 import polars as pl
+import yarp
+from urdf_parser_py import urdf as urdf_parser
+import urdf_parser_py.xml_reflection.core as urdf_parser_core
 
 from .utils.blueprint import build_blueprint
 from .utils.urdf_logger import URDFLogger
+
+urdf_parser_core.on_error = lambda x: x
+
 
 @dataclass
 class Pose:
@@ -83,7 +89,43 @@ class Visualizer:
     Eliminates StreamData objects and wrapper classes.
     """
     
-    def __init__(self, urdf, blueprint, robot_pose=None, gradio=True):
+    def __init__(self, urdf=None, blueprint=None, robot_pose=None, gradio=True):
+        """
+        Initialize visualizer with optional automatic URDF/blueprint setup.
+        
+        Args:
+            urdf: URDF object, or None to auto-load from YARP ResourceFinder
+            blueprint: Blueprint object, or None to auto-generate
+            robot_pose: Optional robot pose
+            gradio: Whether to use gradio interface
+        """
+        # Auto-load URDF if not provided
+        if urdf is None:
+            print("🎨 Setting up visualization...")
+            urdf_path = yarp.ResourceFinder().findFileByName("model.urdf")
+            print(f"📄 Found URDF at: {urdf_path}")
+            urdf = urdf_parser.URDF.from_xml_file(urdf_path)
+            urdf.path = urdf_path
+        
+        # Auto-generate blueprint if not provided
+        if blueprint is None:
+            camera_path = "/".join(
+                urdf.get_chain(root=urdf.get_root(), tip="realsense_depth_frame")[0::2]
+            )
+            image_paths = [f"{camera_path}/cameras/agentview_rgb"]
+            eef_paths = [
+                "/".join(urdf.get_chain(root=urdf.get_root(), tip=eef)[0::2])
+                for eef in ["l_hand_palm", "r_hand_palm"]
+            ]
+
+            blueprint = build_blueprint(
+                image_paths=image_paths,
+                eef_paths=eef_paths,
+                poses=["target_poses", "robot_joints"],
+            )
+            # Store eef_paths for caller to use
+            self.eef_paths = eef_paths
+        
         rid = uuid4()
         self.rec = rr.RecordingStream(application_id="metacub_dashboard", recording_id=rid)
         
@@ -106,6 +148,8 @@ class Visualizer:
         # Log blueprint
         self.rec.send_blueprint(blueprint)
         self.prev_time = 0.0
+        
+        print("✅ Visualizer created successfully")
 
     def log_dataframe_diagnostics(self, df: pl.DataFrame, static: bool = False):
         """Log diagnostic information directly from Polars DataFrame."""

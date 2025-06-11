@@ -7,6 +7,7 @@ import select
 import termios
 import tty
 import os
+import signal
 from typing import Optional
 import threading
 import time
@@ -24,11 +25,31 @@ class KeyboardInterface:
         self.app_output_buffer = []
         self.max_app_lines = 15  # Keep last 15 lines of app output
         self.display_lock = threading.Lock()  # Synchronize display updates
+        
+        # Setup signal handler and print aliasing
+        self._setup_signal_handler()
+        self._setup_print_aliasing()
         self._setup_terminal()
         
         # Start status update thread with longer interval
         self.status_thread = threading.Thread(target=self._status_update_loop, daemon=True)
         self.status_thread.start()
+    
+    def _setup_signal_handler(self):
+        """Setup signal handler for Ctrl+C."""
+        def signal_handler(signum, frame):
+            """Handle Ctrl+C interrupts gracefully."""
+            print("\n🛑 To quit the application, press 'q' and then Enter")
+            print("🔄 To continue, press any other key and then Enter")
+        
+        signal.signal(signal.SIGINT, signal_handler)
+    
+    def _setup_print_aliasing(self):
+        """Setup print aliasing to status-aware printer."""
+        import builtins
+        self.original_print = builtins.print  # Keep reference to original print
+        printer = StatusAwarePrinter(self)
+        builtins.print = printer.print
     
     def _setup_terminal(self):
         """Setup terminal for non-blocking input."""
@@ -39,7 +60,7 @@ class KeyboardInterface:
     def _status_update_loop(self):
         """Background thread to periodically refresh the entire display."""
         while self.is_active:
-            time.sleep(5.0)  # Update every 5 seconds instead of 1
+            time.sleep(1.0)  # Update every 1 second for periodic refresh
             if self.is_active:  # Check again after sleep
                 with self.display_lock:
                     self._refresh_display()
@@ -139,12 +160,18 @@ class KeyboardInterface:
             return None
     
     def update_status(self, status: str):
-        """Update the status message."""
+        """Update the status message and refresh display immediately."""
         self.last_status = status
+        # Immediately refresh display to show the new status
+        with self.display_lock:
+            self._refresh_display()
     
     def set_episode_state(self, state: str):
-        """Update the episode state display."""
+        """Update the episode state display and refresh immediately."""
         self.current_episode_state = state
+        # Immediately refresh display to show the new state
+        with self.display_lock:
+            self._refresh_display()
     
     def log_app_output(self, message: str):
         """
@@ -167,6 +194,11 @@ class KeyboardInterface:
         
         if self.status_thread and self.status_thread.is_alive():
             self.status_thread.join(timeout=1.0)
+        
+        # Restore original print function
+        if hasattr(self, 'original_print'):
+            import builtins
+            builtins.print = self.original_print
         
         if self.old_settings is not None:
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_settings)

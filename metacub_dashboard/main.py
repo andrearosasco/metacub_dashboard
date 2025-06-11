@@ -1,21 +1,13 @@
 """
-Pure Polars implementation of MetaCub Dashboard.
-Uses native Polars DataFrames throughout with no wrapper classes.
+MetaCub Dashboard.
 """
 import time
 import os
-import signal
-import sys
 from uuid import uuid4
-import numpy as np
-from typing import List, Dict, Any
 
 # Set environment before importing yarp
 os.environ["YARP_ROBOT_NAME"] = "ergoCubSN002"
 import yarp
-from scipy.spatial.transform import Rotation as R
-from urdf_parser_py import urdf as urdf_parser
-import urdf_parser_py.xml_reflection.core as urdf_parser_core
 import polars as pl
 
 # Import interfaces
@@ -25,56 +17,22 @@ from metacub_dashboard.interfaces.interfaces import (
     CameraInterface
 )
 from metacub_dashboard.interfaces.utils.control_loop_reader import ControlLoopReader
-from metacub_dashboard.visualizer.visualizer import Visualizer, Camera
-from metacub_dashboard.visualizer.utils.blueprint import build_blueprint
+from metacub_dashboard.visualizer.visualizer import Visualizer
 from metacub_dashboard.data_logger.logger import DataLogger as PolarsDataLogger
 from metacub_dashboard.data_logger.data_logger import DataLogger
-from metacub_dashboard.utils.keyboard_interface import KeyboardInterface, StatusAwarePrinter
-
-urdf_parser_core.on_error = lambda x: x
-
-
-# Global variables for signal handler
-keyboard = None
-data_logger = None
-control_reader = None
-episode_count = 0
-episode_active = False
-
-
-def signal_handler(signum, frame):
-    """Handle Ctrl+C interrupts gracefully."""
-    print("\n🛑 To quit the application, press 'q' and then Enter")
-    print("🔄 To continue, press any other key and then Enter")
-
-
+from metacub_dashboard.utils.keyboard_interface import KeyboardInterface
 
 
 def main():
-    """Main function using pure Polars DataFrames throughout."""
-    global keyboard, data_logger, control_reader, episode_count, episode_active
-    
-    # Set up keyboard interface FIRST before any other initialization
+    """Main function to run the MetaCub Dashboard."""
+    # Set up keyboard interface FIRST (handles signal and print setup automatically)
     keyboard = KeyboardInterface("MetaCub Dashboard - Episode Control")
-    printer = StatusAwarePrinter(keyboard)
-    
-    # Replace built-in print with status-aware print immediately
-    import builtins
-    original_print = builtins.print  # Keep reference to original print
-    builtins.print = printer.print
-    
-    # Set up signal handler for Ctrl+C
-    signal.signal(signal.SIGINT, signal_handler)
     
     try:
         print("🚀 Starting MetaCub Dashboard...")
         
-        # Initialize YARP
-        print("📡 Initializing YARP Network...")
-        yarp.Network.init()
         session_id = uuid4()
         
-
         control_reader = ControlLoopReader(
             action_interface=ActionInterface(
                 remote_prefix="/metaControllClient",
@@ -84,14 +42,14 @@ def main():
             ),
             observation_interfaces={
                 'agentview': CameraInterface(
-                    remote_prefix="/ergocubSim",
+                    remote_prefix="",
                     local_prefix=f"/metacub_dashboard/{session_id}",
                     rgb_shape=(640, 480),
                     depth_shape=None,
                     stream_name="agentview"
                 ),
                 'encoders': EncodersInterface(
-                    remote_prefix="/ergocubSim",
+                    remote_prefix="/ergocub",
                     local_prefix=f"/metacub_dashboard/{session_id}",
                     control_boards=["head", "left_arm", "right_arm", "torso"],
                     stream_name="encoders"
@@ -99,37 +57,14 @@ def main():
             }
         )
 
-        # Visualization setup with error handling
-        print("🎨 Setting up visualization...")
-        urdf_path = yarp.ResourceFinder().findFileByName("model.urdf")
-        print(f"📄 Found URDF at: {urdf_path}")
-        urdf = urdf_parser.URDF.from_xml_file(urdf_path)
-        urdf.path = urdf_path
-
-        # Build visualization blueprint
-        camera_path = "/".join(
-            urdf.get_chain(root=urdf.get_root(), tip="realsense_depth_frame")[0::2]
-        )
-        image_paths = [f"{camera_path}/cameras/agentview_rgb"]
-        eef_paths = [
-            "/".join(urdf.get_chain(root=urdf.get_root(), tip=eef)[0::2])
-            for eef in ["l_hand_palm", "r_hand_palm"]
-        ]
-
-        blueprint = build_blueprint(
-            image_paths=image_paths,
-            eef_paths=eef_paths,
-            poses=["target_poses", "robot_joints"],
-        )
-
-        visualizer = Visualizer(urdf=urdf, blueprint=blueprint, gradio=False)
-        print("✅ Visualizer created successfully")
-
+        # Visualization setup - let visualizer handle URDF loading and blueprint creation
+        visualizer = Visualizer(gradio=False)
+        eef_paths = visualizer.eef_paths  # Get the eef_paths from the auto-setup
 
         # Data logging setup
         print("💾 Setting up data logging...")
         base_data_logger = DataLogger(
-            path="assets/debug_data.zarr.zip",
+            path="assets/demo_data.zarr.zip",
             flush_every=100,
             exist_ok=True
         )
@@ -147,23 +82,26 @@ def main():
             keyboard.set_episode_state("READY")
             command = keyboard.get_command(blocking=True)
             if command == 'start':
-                # Episode will be numbered when saved, not when started
                 current_episode = episode_count + 1  # Preview next episode number               
             elif command == 'quit':
                 break
 
-            # Episode execution loop with DataFrame processing
-            print(f"🎬 Starting Episode {current_episode} (preview)")        
+            keyboard.set_episode_state("RESETTING")
+            keyboard.update_status("Resetting the robot...")
             print("🔄 Resetting the robot...")
             
-            # Initialize control loop with first observation
             control_reader.reset()
+
             keyboard.update_status(f"Episode {current_episode} - Ready")
             keyboard.set_episode_state("READY")
+
+            control_data = control_reader.read()
+            print(f"🔄 Episode {current_episode} started - Recording data...")
+            keyboard.update_status(f"Episode {current_episode} - Recording...")
+            keyboard.set_episode_state("RECORDING")
             
             iteration = 0
             start_episode_time = time.perf_counter()
-            episode_active = True
             
             while True:  # Episode loop
                 # Check for episode control commands
@@ -171,13 +109,8 @@ def main():
                 if command == 'end':
                     print(f"⏹️  Episode {current_episode} ended by user")
                     keyboard.update_status(f"Episode {current_episode} - Ending...")
-                    keyboard.set_episode_state("STOPPED")
-                    episode_active = False
+                    keyboard.set_episode_state("FINISHED")
                     break
-                if iteration == 1:
-                    print(f"🔄 Episode {current_episode} started - Recording data...")
-                    keyboard.update_status(f"Episode {current_episode} - Recording...")
-                    keyboard.set_episode_state("RECORDING")
                 
                 control_data = control_reader.read()
                     
@@ -197,7 +130,7 @@ def main():
                     .alias("entity_path")
                 ])
                 
-                # Step 2: Split processed data by stream type
+                # Split processed data by stream type
                 camera_df = all_observation_df.filter(pl.col("stream_type") == "camera")
                 encoder_df = all_observation_df.filter(pl.col("stream_type") == "encoders")
                 
@@ -223,54 +156,45 @@ def main():
                     keyboard.update_status(f"Episode {current_episode} - Recording... (iter: {iteration})")
             
             # Episode cleanup
-            episode_active = False
             print(f"🧹 Cleaning up Episode {current_episode}...")
             
             # Ask user if they want to keep or discard the episode
-            print("💾 Do you want to keep this episode?")
-            print("   'k' - Keep episode (save to disk)")
-            print("   'd' - Discard episode (delete data)")
             keyboard.update_status(f"Episode {current_episode} - Keep (k) or Discard (d)?")
             
             # Wait for keep/discard decision (blocking)
-            while True:
-                decision = keyboard.get_command(blocking=True)
-                if decision == 'keep':
-                    # Increment episode counter only when saving
-                    print(f"✅ Keeping episode - saving as Episode {episode_count + 1}...")
-                    keyboard.update_status(f"Episode {episode_count + 1} - Saving...")
-                    # End episode with pure Polars diagnostics (saves data)
-                    data_logger.end_episode()
-                    print(f"💾 Episode {episode_count + 1} saved successfully!")
-                    episode_count += 1
-                    break
-                elif decision == 'discard':
-                    print("🗑️  Discarding episode - data will not be saved...")
-                    keyboard.update_status(f"Episode {current_episode + 1} - Discarding...")
-                    # Discard episode data without saving
-                    data_logger.discard_episode()
-                    print(f"🗑️  Episode {current_episode + 1} discarded!")
-                    break
+            decision = keyboard.get_command(blocking=True)
+            if decision == 'keep':
+                # Increment episode counter only when saving
+                print(f"✅ Keeping episode - saving as Episode {episode_count + 1}...")
+                keyboard.update_status(f"Episode {episode_count + 1} - Saving...")
+                data_logger.end_episode()
+                print(f"💾 Episode {episode_count + 1} saved successfully!")
+                episode_count += 1
+            elif decision == 'discard':
+                print("🗑️  Discarding episode - data will not be saved...")
+                keyboard.update_status(f"Episode {current_episode} - Discarding...")
+                data_logger.discard_episode()
+                print(f"🗑️  Episode {current_episode} discarded!")
+            
+            # Continue to next episode (go back to main loop)
         
 
         print("🧹 Final cleanup...")
         keyboard.close()
         control_reader.close()
-        yarp.Network.fini()
-        print("✅ Pure Polars clean shutdown complete!")
+        print("✅ Clean shutdown complete!")
     
     except Exception as e:
-        original_print(f"❌ Unexpected error: {e}")
-        original_print("🛑 Application terminated due to an error")
+        print(f"❌ Unexpected error: {e}")
+        print("🛑 Application terminated due to an error")
         
         # Final cleanup in case of error
         try:
             keyboard.close()
             control_reader.close()
-            yarp.Network.fini()
-            original_print("✅ Cleanup complete")
+            print("✅ Cleanup complete")
         except Exception as cleanup_e:
-            original_print(f"⚠️  Cleanup error: {cleanup_e}")
+            print(f"⚠️  Cleanup error: {cleanup_e}")
         
         raise  # Re-raise the exception after cleanup
 
