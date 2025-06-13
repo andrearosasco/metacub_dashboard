@@ -126,7 +126,7 @@ class ActionInterface(Interface):
             print(f"Waiting for {self.remote_prefix}/reset:i port to connect...")
             time.sleep(0.1)
 
-        self.read()
+        # self.read()
 
     def reset(self, blocking: bool = True):
         """Send reset signal to the action server."""
@@ -253,7 +253,7 @@ class EncodersInterface(Interface):
                 print(f"Waiting for {self.remote_prefix}/{board}/state:o port to connect...")
                 time.sleep(0.1)
 
-        self.read()
+        # self.read()
 
     def read(self) -> pl.DataFrame:
         """Read encoder data and return as Polars DataFrame."""
@@ -373,7 +373,7 @@ class CameraInterface(Interface):
                 print("Waiting for Depth port to connect...")
                 time.sleep(0.1)
 
-        self.read()
+        # self.read()
 
     def read(self) -> pl.DataFrame:
         """Read camera data and return as Polars DataFrame."""

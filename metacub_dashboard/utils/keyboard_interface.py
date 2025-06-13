@@ -110,6 +110,10 @@ class KeyboardInterface:
             - 'e': end episode  
             - 'q': quit application
             - 'r': reset episode
+            - 'k': keep episode
+            - 'd': discard episode
+            - ' ' (spacebar): space (keep & end)
+            - delete/backspace: delete (discard & end)
         """
         if not sys.stdin.isatty():
             return None
@@ -133,6 +137,10 @@ class KeyboardInterface:
                         return 'keep'
                     elif key == 'd':
                         return 'discard'
+                    elif key == ' ':  # Spacebar
+                        return 'space'
+                    elif key == '\x7f':  # Delete/Backspace key
+                        return 'delete'
                     elif key == '\x03':  # Ctrl+C
                         return 'quit'
                 # Small sleep to prevent busy waiting
@@ -154,6 +162,10 @@ class KeyboardInterface:
                     return 'keep'
                 elif key == 'd':
                     return 'discard'
+                elif key == ' ':  # Spacebar
+                    return 'space'
+                elif key == '\x7f':  # Delete/Backspace key
+                    return 'delete'
                 elif key == '\x03':  # Ctrl+C
                     return 'quit'
             
