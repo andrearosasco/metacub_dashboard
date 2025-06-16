@@ -3,7 +3,7 @@ authors = [{name = "kdpe-robotics", email = "no-reply@kdpe-robotics.com"}]
 name = "metaCub_dashboard"
 requires-python = ">= 3.11"
 version = "0.1.0"
-dependencies = [ "gradio>=5.22.0", "gradio-rerun>=0.23.2", "urdf-parser-py>=0.0.4,<0.0.5"]
+dependencies = [ "urdf-parser-py>=0.0.4,<0.0.5"]
 
 [build-system]
 build-backend = "hatchling.build"
@@ -19,8 +19,7 @@ metaCub_dashboard = { path = ".", editable = true }
 [tool.pixi.tasks]
 
 [tool.pixi.dependencies]
-rerun-sdk = ">=0.23.2,<0.24"
-opencv = ">=4.11.0,<5"
+rerun-sdk = ">=0.23"
 scipy = ">=1.15.2,<2"
 h5py = ">=3.13.0,<4"
 trimesh = ">=4.6.9,<5"
@@ -28,10 +27,32 @@ matplotlib = ">=3.10.3,<4"
 pycollada = ">=0.9,<0.10"
 yarp = "==3.11.2"
 pytorch = ">=2.7.0,<3"
-zarr = ">=3.0.8,<4"
+zarr = "==2.12.0"
 numcodecs = ">=0.15.1,<0.16"
 imagecodecs = ">=2024.12.30,<2025"
 ergocub-software = ">=0.7.7"
+polars = ">=1.30.0,<2"
+pyopengl = ">=3.1.7"
+
+[tool.pixi.target.linux-64.dependencies]
+# Graphics packages for rerun/WGPU compatibility (Linux only)
+libdrm = "*"
+xorg-libx11 = "*" 
+xorg-libxext = "*"
+xorg-libxrender = "*"
+xorg-libxi = "*"
+libxcb = "*"
+# OpenGL support - newer packages for OpenGL 4.3+ support
+libgl = ">=1.7.0"
+libglx = ">=1.7.0"
+libglu = ">=9.0.3"
+libgles = ">=1.7.0"
+libglvnd = ">=1.7.0"
+libgl-devel = ">=1.7.0"
+freeglut = "*"
+glfw = "*"
+# Mesa 25.0.5 for modern OpenGL support including compute shaders
+mesalib = ">=25.0.5"
 
 [tool.pixi.feature.debug.dependencies]
 gazebo = "*"
