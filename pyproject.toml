@@ -16,6 +16,9 @@ platforms = ["linux-64", "win-64"]
 [tool.pixi.pypi-dependencies]
 metaCub_dashboard = { path = ".", editable = true }
 
+[tool.pixi.activation.env]
+RERUN = "off"
+
 [tool.pixi.tasks]
 
 [tool.pixi.dependencies]
