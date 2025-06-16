@@ -7,7 +7,6 @@ import argparse
 import time
 import os
 from pathlib import Path
-import numpy as np
 import zarr
 import polars as pl
 
@@ -16,7 +15,6 @@ os.environ["YARP_ROBOT_NAME"] = "ergoCubSN002"
 import yarp
 
 from metacub_dashboard.visualizer.visualizer import Visualizer
-from metacub_dashboard.utils.keyboard_interface import KeyboardInterface
 from metacub_dashboard.interfaces.interfaces import STREAM_SCHEMA
 
 
@@ -26,7 +24,6 @@ class DatasetVisualizer:
     def __init__(self, zarr_path: str):
         self.zarr_path = zarr_path
         self.visualizer = None
-        self.keyboard = None
         
         # Load dataset
         self.root = zarr.open(zarr_path, mode='r')
@@ -150,8 +147,7 @@ class DatasetVisualizer:
                     }
                 }
                 actions_list.append(action_row)
-        
-        # Create DataFrames with the correct schema
+          # Create DataFrames with the correct schema
         observations_df = pl.DataFrame()
         actions_df = pl.DataFrame()
         
@@ -178,48 +174,20 @@ class DatasetVisualizer:
                 self.visualizer = Visualizer(gradio=False)
                 print("✅ Visualizer ready")
             
-            # Setup keyboard interface
-            if self.keyboard is None:
-                self.keyboard = KeyboardInterface("Dataset Visualizer")
-                self.keyboard.set_episode_state("REPLAYING")
-            
-            # Get end-effector paths from visualizer
+            # Get end-effector paths and image paths from visualizer
             eef_paths = self.visualizer.eef_paths
+            image_paths = self.visualizer.image_paths
             
             # Replay episode
             print(f"🔄 Replaying {episode_length} frames at {playback_speed}x speed...")
             frame_duration = 0.1 / playback_speed  # Assume 10Hz base rate
             
             start_time = time.time()
-            paused = False
-            frame = 0
             
-            while frame < episode_length:
-                # Check for user input
-                command = self.keyboard.get_command()
-                if command == 'q':
-                    print("🛑 Stopping replay...")
-                    break
-                elif command == 's' or command == 'space':
-                    paused = not paused
-                    if paused:
-                        print("⏸️  Paused (press 's' or space to resume)")
-                        self.keyboard.update_status("PAUSED - Press 's' or space to resume")
-                    else:
-                        print("▶️  Resumed")
-                        self.keyboard.update_status(f"Replaying Episode {episode_idx} - Frame {frame}/{episode_length}")
-                elif command == 'r':
-                    print("🔄 Restarting replay...")
-                    frame = 0
-                    start_time = time.time()
-                
-                if paused:
-                    time.sleep(0.1)
-                    continue
-                
-                # Update status
+            for frame in range(episode_length):
+                # Show progress
                 if frame % 10 == 0:
-                    self.keyboard.update_status(f"Replaying Episode {episode_idx} - Frame {frame}/{episode_length}")
+                    print(f"Frame {frame}/{episode_length}")
                 
                 # Get data for current frame
                 current_frame_idx = start_frame + frame
@@ -232,6 +200,8 @@ class DatasetVisualizer:
                         .then(pl.lit(f"{eef_paths[0]}/fingers"))
                         .when(pl.col("name").str.contains("right_arm"))  
                         .then(pl.lit(f"{eef_paths[1]}/fingers"))
+                        .when(pl.col("name") == "agentview_rgb")
+                        .then(pl.lit(f'{image_paths[0]}/agentview_rgb'))  # Use the first (and likely only) image path
                         .otherwise(pl.lit("joints"))
                         .alias("entity_path")
                     ])
@@ -257,8 +227,6 @@ class DatasetVisualizer:
                 expected_time = frame * frame_duration
                 if elapsed < expected_time:
                     time.sleep(expected_time - elapsed)
-                
-                frame += 1
             
             print(f"✅ Episode {episode_idx} replay complete!")
             
@@ -270,7 +238,7 @@ class DatasetVisualizer:
     
     def list_episodes(self):
         """List all available episodes."""
-        print(f"\n📋 Available Episodes:")
+        print("\n📋 Available Episodes:")
         print(f"{'Episode':<8} {'Length':<8} {'Frames':<15} {'Status'}")
         print("-" * 45)
         
@@ -279,12 +247,9 @@ class DatasetVisualizer:
             status = "✅ Valid" if length > 0 else "❌ Empty"
             frame_range = f"{cumulative}-{cumulative + length - 1}" if length > 0 else "N/A"
             print(f"{i:<8} {length:<8} {frame_range:<15} {status}")
-            cumulative += length
-    
+            cumulative += length    
     def close(self):
         """Clean up resources."""
-        if self.keyboard:
-            self.keyboard.close()
         yarp.Network.fini()
 
 
@@ -309,8 +274,7 @@ def main():
         if args.list:
             visualizer.list_episodes()
             return 0
-        
-        # Validate episode
+          # Validate episode
         if args.episode >= len(visualizer.episode_lengths):
             print(f"❌ Episode {args.episode} not found (max: {len(visualizer.episode_lengths) - 1})")
             return 1
@@ -319,14 +283,11 @@ def main():
             print(f"❌ Episode {args.episode} is empty")
             return 1
         
-        print(f"🎬 Starting dataset visualization...")
-        print(f"📋 Controls:")
-        print(f"   'q' - Quit")
-        print(f"   's' or space - Pause/Resume")
-        print(f"   'r' - Restart episode")
+        print("🎬 Starting dataset visualization...")
         
         # Visualize episode
         visualizer.visualize_episode(args.episode, args.speed)
+        input()
         
         return 0
         
@@ -338,6 +299,7 @@ def main():
         return 1
     finally:
         if 'visualizer' in locals():
+            pass
             visualizer.close()
 
 

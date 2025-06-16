@@ -123,8 +123,9 @@ class Visualizer:
                 eef_paths=eef_paths,
                 poses=["target_poses", "robot_joints"],
             )
-            # Store eef_paths for caller to use
+            # Store paths for caller to use
             self.eef_paths = eef_paths
+            self.image_paths = image_paths
         
         rid = uuid4()
         self.rec = rr.RecordingStream(application_id="metacub_dashboard", recording_id=rid)
@@ -209,18 +210,12 @@ class Visualizer:
         
         for i, row in enumerate(camera_only_df.iter_rows(named=True)):
             data = row['data']
-            stream_name = row['name']
-            
-            # Use stream name for path, or default indexing
-            path_prefix = stream_name if stream_name != "camera" else f"camera_{i}"
             
             for image_type, image_data in data.items():
                 if image_type == "rgb":
-                    path = f'{path_prefix}/rgb'
-                    self.rec.log(path, rr.Image(image_data), static=static)
+                    self.rec.log(row['entity_path'], rr.Image(image_data), static=static)
                 elif image_type == "depth":
-                    path = f'{path_prefix}/depth'
-                    self.rec.log(path, rr.DepthImage(image_data), static=static)
+                    self.rec.log(row['entity_path'], rr.DepthImage(image_data), static=static)
 
     def log_cameras(self, cameras: dict[str, Camera], static: bool = False):
         """Log virtual camera poses and parameters."""
