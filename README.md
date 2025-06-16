@@ -1,5 +1,12 @@
 # MetaCub Dashboard
 
+[![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://python.org)
+[![Platform](https://img.shields.io/badge/platform-linux--64-lightgrey.svg)](https://github.com/your-org/metacub_dashboard)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![YARP](https://img.shields.io/badge/YARP-3.11.2-orange.svg)](https://www.yarp.it/)
+[![Pixi](https://img.shields.io/badge/pixi-managed-purple.svg)](https://pixi.sh/)
+[![Status](https://img.shields.io/badge/status-active-brightgreen.svg)](https://github.com/your-org/metacub_dashboard)
+
 A comprehensive data logging and visualization dashboard for the MetaCub humanoid robot. This project captures, stores, and visualizes robot data including joint encoders, camera feeds, and action commands in real-time during robot operation.
 
 > [!IMPORTANT]
