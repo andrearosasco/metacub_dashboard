@@ -6,7 +6,7 @@ import polars as pl
 import numpy as np
 import yarp
 import time
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from abc import ABC, abstractmethod
 
 # Define schemas for type safety
@@ -393,7 +393,7 @@ class CameraInterface(Interface):
             self.yarp_rgb_image.copy(data)
             rgb_image = np.frombuffer(self.rgb_buffer, dtype=np.uint8).reshape(
                 self.rgb_shape[1], self.rgb_shape[0], 3
-            )
+            ).copy()  # Create a copy to avoid buffer reuse issues
             
             # Create metadata
             metadata = self._create_metadata_dict(
@@ -431,7 +431,7 @@ class CameraInterface(Interface):
             depth_image = (
                 np.frombuffer(self.depth_buffer, dtype=np.float32).reshape(
                     self.depth_shape[1], self.depth_shape[0]
-                ) * 1000
+                ).copy() * 1000  # Create a copy to avoid buffer reuse issues
             ).astype(np.uint16)
             
             # Create metadata
