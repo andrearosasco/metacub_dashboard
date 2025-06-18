@@ -140,7 +140,6 @@ class DataLogger:
         self.log_count += 1
 
     def get_episode_count(self) -> int:
-        """Get the number of episodes already saved in the dataset."""
         if not Path(self.path).exists():
             return 0
             
@@ -154,7 +153,7 @@ class DataLogger:
         except (zipfile.BadZipFile, OSError, ValueError, AttributeError):
             return 0
 
-    def end_episode(self):
+    def end_episode(self, success=True):
         # First, flush any remaining data in the buffer
         if self.data_buffer:
             self.futures.append(self.executor.submit(process_and_write_dataframes_buffer, self.data_buffer, self.path))
@@ -176,12 +175,21 @@ class DataLogger:
                 dest_store = zarr.storage.ZipStore(self.path, mode='w')  # write mode
             dest_group = zarr.group(store=dest_store, overwrite=False)
 
+            # Store episode length
             if 'episode_length' not in dest_group:
-                za = dest_group.require_dataset('episode_length', shape=(1,), dtype=int, chunks=(1,), compression=Blosc(), overwrite=False)
-                za[0] = self.log_count
+                za_length = dest_group.require_dataset('episode_length', shape=(1,), dtype=int, chunks=(1,), compression=Blosc(), overwrite=False)
+                za_length[0] = self.log_count
             else:
-                za = dest_group['episode_length']
-                za.append([self.log_count])
+                za_length = dest_group['episode_length']
+                za_length.append([self.log_count])
+            
+            # Store episode success (True for successful completion)
+            if 'success' not in dest_group:
+                za_success = dest_group.require_dataset('success', shape=(1,), dtype=bool, chunks=(1,), compression=Blosc(), overwrite=False)
+                za_success[0] = True
+            else:
+                za_success = dest_group['success']
+                za_success.append([success])
             
             dest_store.close()
         except (zipfile.BadZipFile, OSError, ValueError) as e:

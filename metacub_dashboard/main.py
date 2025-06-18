@@ -40,7 +40,7 @@ def main():
 
         # Discard current episode if recording
         if data_logger is not None:
-            data_logger.discard_episode()
+            data_logger.end_episode(success=False)
         
         # Close YARP ports and control reader
         if control_reader is not None:
@@ -206,11 +206,11 @@ def main():
             elif episode_decision == 'discard':
                 print("🗑️  Discarding episode - data will not be saved...")
                 keyboard.update_status(f"Episode {current_episode} - Discarding...")
-                data_logger.discard_episode()
+                data_logger.end_episode(success=False)
                 print(f"🗑️  Episode {current_episode} discarded!")
             elif episode_decision == 'quit':
                 print("🗑️  Discarding current episode and quitting...")
-                data_logger.discard_episode()
+                data_logger.end_episode(success=False)
                 break
             
             # Continue to next episode (go back to main loop)
