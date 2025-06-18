@@ -107,11 +107,11 @@ class DataLogger:
         
         if Path(path).exists() and exist_ok:
             # Open existing store in append mode
-            self.dest_store = zarr.storage.ZipStore(path, mode='a')
+            self.dest_store = zarr.storage.DirectoryStore(path, mode='a')
             self.dest_group = zarr.group(store=self.dest_store, overwrite=False)
         else:
             # Create new store
-            self.dest_store = zarr.storage.ZipStore(path, mode='w')
+            self.dest_store = zarr.storage.DirectoryStore(path, mode='w')
             self.dest_group = zarr.group(store=self.dest_store)
 
     def log_dataframes_raw(self, observations_df, actions_df=None):
@@ -170,9 +170,9 @@ class DataLogger:
         # Only try to access the zip file if we've actually written data
         try:
             if Path(self.path).exists():
-                dest_store = zarr.storage.ZipStore(self.path, mode='a')  # append mode
+                dest_store = zarr.storage.DirectoryStore(self.path, mode='a')  # append mode
             else:
-                dest_store = zarr.storage.ZipStore(self.path, mode='w')  # write mode
+                dest_store = zarr.storage.DirectoryStore(self.path, mode='w')  # write mode
             dest_group = zarr.group(store=dest_store, overwrite=False)
 
             # Store episode length
@@ -198,7 +198,7 @@ class DataLogger:
             Path(self.path).parent.mkdir(exist_ok=True)
             if Path(self.path).exists():
                 os.remove(self.path)
-            self.dest_store = zarr.storage.ZipStore(self.path, mode='w')
+            self.dest_store = zarr.storage.DirectoryStore(self.path, mode='w')
             self.dest_group = zarr.group(store=self.dest_store)
         
         self.log_count = 0
@@ -306,15 +306,15 @@ def write_data(data, path):
     # Try to open existing store, create new one if it doesn't exist or is corrupted
     try:
         if Path(path).exists():
-            dest_store = zarr.storage.ZipStore(path, mode='a')  # append mode
+            dest_store = zarr.storage.DirectoryStore(path, mode='a')  # append mode
         else:
-            dest_store = zarr.storage.ZipStore(path, mode='w')  # write mode
+            dest_store = zarr.storage.DirectoryStore(path, mode='w')  # write mode
         dest_group = zarr.group(store=dest_store, overwrite=False)
     except (zipfile.BadZipFile, OSError, ValueError) as e:
         # If the file is corrupted or has issues, remove it and create a new one
         if Path(path).exists():
             os.remove(path)
-        dest_store = zarr.storage.ZipStore(path, mode='w')
+        dest_store = zarr.storage.DirectoryStore(path, mode='w')
         dest_group = zarr.group(store=dest_store)
 
     num_workers = 1

@@ -104,7 +104,7 @@ def main():
         # Data logging setup
         print("💾 Setting up data logging...")
         base_data_logger = DataLogger(
-            path="assets/debug_data.zarr.zip",
+            path="assets/debug_data.zarr",
             flush_every=100,
             exist_ok=True
         )
