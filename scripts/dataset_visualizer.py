@@ -275,7 +275,7 @@ class DatasetVisualizer:
 def main():
     """Main function."""
     parser = argparse.ArgumentParser(description="Visualize MetaCub dataset episodes")
-    parser.add_argument("dataset", nargs='?', default="assets/beer_data.zarr.zip", help="Path to zarr.zip dataset file")
+    parser.add_argument("dataset", nargs='?', default="assets/debug_data.zarr", help="Path to zarr.zip dataset file")
     parser.add_argument("-e", "--episode", type=int, default=0, help="Episode index to visualize")
     parser.add_argument("-f", "--frequency", type=float, default=10.0, help="Playback frequency in Hz (default: 10.0)")
     parser.add_argument("-l", "--list", action="store_true", help="List available episodes and exit")
