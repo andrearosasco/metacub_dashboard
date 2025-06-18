@@ -8,7 +8,6 @@ import sys
 from uuid import uuid4
 
 # Set environment before importing yarp
-os.environ["RERUN"] = "off"
 os.environ["YARP_ROBOT_NAME"] = "ergoCubSN002"
 import yarp
 import polars as pl
@@ -50,6 +49,9 @@ def main():
         # Close keyboard interface
         if keyboard is not None:
             keyboard.close()
+
+        # if visualizer is not None:
+        #     visualizer.close()
         
         print("✅ Shutdown complete!")
     
@@ -102,7 +104,7 @@ def main():
         # Data logging setup
         print("💾 Setting up data logging...")
         base_data_logger = DataLogger(
-            path="assets/beer_data.zarr.zip",
+            path="assets/debug_data.zarr.zip",
             flush_every=100,
             exist_ok=True
         )

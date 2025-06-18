@@ -1,16 +1,22 @@
 """
 Keyboard command interface for MetaCub Dashboard with persistent status display.
 Uses a simpler approach with clear status area separation.
+Cross-platform implementation supporting both Windows and Unix systems.
 """
 import sys
-import select
-import termios
-import tty
 import os
-import signal
 from typing import Optional
 import threading
 import time
+import platform
+
+# Platform-specific imports
+if platform.system() == 'Windows':
+    import msvcrt
+else:
+    import select
+    import termios
+    import tty
 
 
 class KeyboardInterface:
@@ -27,7 +33,6 @@ class KeyboardInterface:
         self.display_lock = threading.Lock()  # Synchronize display updates
         
         # Setup signal handler and print aliasing
-        self._setup_signal_handler()
         self._setup_print_aliasing()
         self._setup_terminal()
         
@@ -35,14 +40,7 @@ class KeyboardInterface:
         self.status_thread = threading.Thread(target=self._status_update_loop, daemon=True)
         self.status_thread.start()
     
-    def _setup_signal_handler(self):
-        """Setup signal handler for Ctrl+C."""
-        def signal_handler(signum, frame):
-            """Handle Ctrl+C interrupts gracefully."""
-            print("\n🛑 To quit the application, press 'q' and then Enter")
-            print("🔄 To continue, press any other key and then Enter")
-        
-        signal.signal(signal.SIGINT, signal_handler)
+
     
     def _setup_print_aliasing(self):
         """Setup print aliasing to status-aware printer."""
@@ -54,8 +52,10 @@ class KeyboardInterface:
     def _setup_terminal(self):
         """Setup terminal for non-blocking input."""
         if sys.stdin.isatty():
-            self.old_settings = termios.tcgetattr(sys.stdin)
-            tty.setcbreak(sys.stdin.fileno())
+            if platform.system() != 'Windows':
+                self.old_settings = termios.tcgetattr(sys.stdin)
+                tty.setcbreak(sys.stdin.fileno())
+            # On Windows, we don't need to set up raw mode for msvcrt
     
     def _status_update_loop(self):
         """Background thread to periodically refresh the entire display."""
@@ -69,9 +69,11 @@ class KeyboardInterface:
         """Refresh the entire terminal display with status and app output."""
         if not sys.stdin.isatty():
             return
-            
-        # Clear screen and move to top - use direct sys.stdout.write to avoid recursion
-        os.system('clear')
+              # Clear screen and move to top - use direct sys.stdout.write to avoid recursion
+        if platform.system() == 'Windows':
+            os.system('cls')
+        else:
+            os.system('clear')
         
         # Print header and status using direct sys.stdout.write
         sys.stdout.write("="*80 + "\n")
@@ -92,8 +94,7 @@ class KeyboardInterface:
             sys.stdout.write("-" * 40 + "\n")
         else:
             sys.stdout.write("No application output yet...\n")
-            sys.stdout.write("-" * 40 + "\n")
-        
+            sys.stdout.write("-" * 40 + "\n")        
         sys.stdout.flush()
      
     def get_command(self, blocking: bool = False) -> Optional[str]:
@@ -118,58 +119,67 @@ class KeyboardInterface:
         if not sys.stdin.isatty():
             return None
         
+        if platform.system() == 'Windows':
+            return self._get_command_windows(blocking)
+        else:
+            return self._get_command_unix(blocking)
+    
+    def _get_command_windows(self, blocking: bool = False) -> Optional[str]:
+        """Windows-specific implementation using msvcrt."""
+        if blocking:
+            # Blocking mode: wait until a command is received
+            while True:
+                if msvcrt.kbhit():
+                    key = msvcrt.getch().decode('utf-8', errors='ignore')
+                    return self._process_key(key)
+                # Small sleep to prevent busy waiting
+                time.sleep(0.01)
+        else:
+            # Non-blocking mode: check once and return
+            if msvcrt.kbhit():
+                key = msvcrt.getch().decode('utf-8', errors='ignore')
+                return self._process_key(key)
+            return None
+    
+    def _get_command_unix(self, blocking: bool = False) -> Optional[str]:
+        """Unix-specific implementation using select and termios."""
         if blocking:
             # Blocking mode: wait until a command is received
             while True:
                 # Check if input is available
                 if select.select([sys.stdin], [], [], 0.01) == ([sys.stdin], [], []):
                     key = sys.stdin.read(1)
-                    
-                    if key == 's':
-                        return 'start'
-                    elif key == 'e':
-                        return 'end'
-                    elif key == 'q':
-                        return 'quit'
-                    elif key == 'r':
-                        return 'reset'
-                    elif key == 'k':
-                        return 'keep'
-                    elif key == 'd':
-                        return 'discard'
-                    elif key == ' ':  # Spacebar
-                        return 'space'
-                    elif key == '\x7f':  # Delete/Backspace key
-                        return 'delete'
-                    elif key == '\x03':  # Ctrl+C
-                        return 'quit'
+                    return self._process_key(key)
                 # Small sleep to prevent busy waiting
                 time.sleep(0.01)
         else:
             # Non-blocking mode: check once and return
             if select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):
                 key = sys.stdin.read(1)
-                
-                if key == 's':
-                    return 'start'
-                elif key == 'e':
-                    return 'end'
-                elif key == 'q':
-                    return 'quit'
-                elif key == 'r':
-                    return 'reset'
-                elif key == 'k':
-                    return 'keep'
-                elif key == 'd':
-                    return 'discard'
-                elif key == ' ':  # Spacebar
-                    return 'space'
-                elif key == '\x7f':  # Delete/Backspace key
-                    return 'delete'
-                elif key == '\x03':  # Ctrl+C
-                    return 'quit'
-            
+                return self._process_key(key)
             return None
+    
+    def _process_key(self, key: str) -> Optional[str]:
+        """Process a key and return the corresponding command."""
+        if key == 's':
+            return 'start'
+        elif key == 'e':
+            return 'end'
+        elif key == 'q':
+            return 'quit'
+        elif key == 'r':
+            return 'reset'
+        elif key == 'k':
+            return 'keep'
+        elif key == 'd':
+            return 'discard'
+        elif key == ' ':  # Spacebar
+            return 'space'
+        elif key == '\x7f' or key == '\x08':  # Delete/Backspace key (Unix/Windows)
+            return 'delete'
+        elif key == '\x03':  # Ctrl+C
+            return 'quit'
+        return None
     
     def update_status(self, status: str):
         """Update the status message and refresh display immediately."""
@@ -206,13 +216,13 @@ class KeyboardInterface:
         
         if self.status_thread and self.status_thread.is_alive():
             self.status_thread.join(timeout=1.0)
-        
-        # Restore original print function
+          # Restore original print function
         if hasattr(self, 'original_print'):
             import builtins
             builtins.print = self.original_print
         
-        if self.old_settings is not None:
+        # Restore terminal settings (Unix only)
+        if platform.system() != 'Windows' and self.old_settings is not None:
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_settings)
         
         # Use direct sys.stdout.write to avoid recursion

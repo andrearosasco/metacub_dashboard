@@ -237,24 +237,24 @@ def process_and_write_dataframes_buffer(data_buffer, path):
                 if stream_type == "camera":
                     # Camera data: stream_name_rgb, stream_name_depth
                     for data_type, image in stream_data.items():
-                        key = f"{stream_name}_{data_type}"
+                        key = f"{stream_name}"
                         obs_dict[key] = image
                         
                 elif stream_type == "encoders":
                     # Encoder data: stream_name_board_name for each board
                     for board_name, board_data in stream_data.items():
                         if isinstance(board_data, dict) and 'values' in board_data:
-                            key = f"{stream_name}_{board_name}"
+                            key = f"{stream_name}"
                             obs_dict[key] = board_data['values']
                         else:
-                            key = f"{stream_name}_{board_name}"
+                            key = f"{stream_name}"
                             obs_dict[key] = board_data
                 else:
                     # Generic handling
                     for data_name, data_value in stream_data.items():
-                        key = f"{stream_name}_{data_name}"
+                        key = f"{stream_name}"
                         obs_dict[key] = np.array(data_value) if not isinstance(data_value, np.ndarray) else data_value
-        
+
         # Convert actions DataFrame to dictionary
         action_dict = {}
         if actions_df is not None and len(actions_df) > 0:
