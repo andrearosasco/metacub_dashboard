@@ -28,6 +28,7 @@ class DatasetVisualizer:
         # Load dataset
         self.root = zarr.open(zarr_path, mode='r')
         self.episode_lengths = self.root['episode_length'][:]
+        self.episode_success = self.root['success'][:] if 'success' in self.root else None
         self.obs_group = self.root['obs']
         self.action_group = self.root['action'] if 'action' in self.root else None
         
@@ -48,19 +49,18 @@ class DatasetVisualizer:
         episode_length = self.episode_lengths[episode_idx]
         if episode_length == 0:
             raise ValueError(f"Episode {episode_idx} is empty")
-        
-        # Calculate frame range
+          # Calculate frame range
         start_frame = sum(self.episode_lengths[:episode_idx])
         end_frame = start_frame + episode_length
         
         return start_frame, end_frame, episode_length
     
-    def frame_to_dataframes(self, frame_idx: int):
+    def frame_to_dataframes(self, frame_idx: int, frequency: float = 10.0):
         """Convert single frame data to Polars DataFrames."""
         observations_list = []
         actions_list = []
         
-        timestamp = frame_idx * 0.1  # Assume 10Hz
+        timestamp = frame_idx / frequency  # Use provided frequency
         
         # ===== OBSERVATION DATA =====
         
@@ -78,7 +78,7 @@ class DatasetVisualizer:
                     "read_timestamp": timestamp,
                     "read_delay": 0.0,
                     "read_attempts": 1,
-                    "frequency": 10.0,
+                    "frequency": frequency,
                 }
             }
             observations_list.append(obs_row)
@@ -109,14 +109,13 @@ class DatasetVisualizer:
                             'values': encoder_values,
                             'labels': joint_labels[:len(encoder_values)]  # Match length
                         }
-                    },
-                    "metadata": {
+                    },                    "metadata": {
                         "timestamp": timestamp,
                         "seq_number": frame_idx,
                         "read_timestamp": timestamp,
                         "read_delay": 0.0,
                         "read_attempts": 1,
-                        "frequency": 10.0,
+                        "frequency": frequency,
                     }
                 }
                 observations_list.append(obs_row)
@@ -136,18 +135,17 @@ class DatasetVisualizer:
                     "name": "actions",
                     "stream_type": "poses",
                     "entity_path": "",
-                    "data": action_data,
-                    "metadata": {
+                    "data": action_data,                    "metadata": {
                         "timestamp": timestamp,
                         "seq_number": frame_idx,
                         "read_timestamp": timestamp,
                         "read_delay": 0.0,
                         "read_attempts": 1,
-                        "frequency": 10.0,
-                    }
+                        "frequency": frequency,                    }
                 }
                 actions_list.append(action_row)
-          # Create DataFrames with the correct schema
+        
+        # Create DataFrames with the correct schema
         observations_df = pl.DataFrame()
         actions_df = pl.DataFrame()
         
@@ -161,7 +159,7 @@ class DatasetVisualizer:
         
         return observations_df, actions_df
     
-    def visualize_episode(self, episode_idx: int, playback_speed: float = 1.0):
+    def visualize_episode(self, episode_idx: int, frequency: float = 10.0):
         """Visualize a specific episode."""
         try:
             # Get episode frame range
@@ -179,8 +177,8 @@ class DatasetVisualizer:
             image_paths = self.visualizer.image_paths
             
             # Replay episode
-            print(f"🔄 Replaying {episode_length} frames at {playback_speed}x speed...")
-            frame_duration = 0.1 / playback_speed  # Assume 10Hz base rate
+            print(f"🔄 Replaying {episode_length} frames at {frequency}Hz...")
+            frame_duration = 1.0 / frequency  # Use frequency instead of playback speed
             
             start_time = time.time()
             
@@ -191,7 +189,7 @@ class DatasetVisualizer:
                 
                 # Get data for current frame
                 current_frame_idx = start_frame + frame
-                observations_df, actions_df = self.frame_to_dataframes(current_frame_idx)
+                observations_df, actions_df = self.frame_to_dataframes(current_frame_idx, frequency)
                 
                 # Process dataframes to add entity paths (mimicking main.py logic)
                 if not observations_df.is_empty():
@@ -221,8 +219,7 @@ class DatasetVisualizer:
                         timestamp=frame * 0.1,
                         static=False,
                     )
-                
-                # Timing control
+                  # Timing control
                 elapsed = time.time() - start_time
                 expected_time = frame * frame_duration
                 if elapsed < expected_time:
@@ -239,15 +236,37 @@ class DatasetVisualizer:
     def list_episodes(self):
         """List all available episodes."""
         print("\n📋 Available Episodes:")
-        print(f"{'Episode':<8} {'Length':<8} {'Frames':<15} {'Status'}")
-        print("-" * 45)
+        if self.episode_success is not None:
+            print(f"{'Episode':<8} {'Length':<8} {'Frames':<15} {'Status':<10} {'Success'}")
+            print("-" * 60)
+        else:
+            print(f"{'Episode':<8} {'Length':<8} {'Frames':<15} {'Status'}")
+            print("-" * 45)
         
         cumulative = 0
+        successful_count = 0
+        failed_count = 0
+        
         for i, length in enumerate(self.episode_lengths):
             status = "✅ Valid" if length > 0 else "❌ Empty"
             frame_range = f"{cumulative}-{cumulative + length - 1}" if length > 0 else "N/A"
-            print(f"{i:<8} {length:<8} {frame_range:<15} {status}")
-            cumulative += length    
+            
+            if self.episode_success is not None and i < len(self.episode_success):
+                success = self.episode_success[i]
+                success_status = "✅ Success" if success else "❌ Failed"
+                print(f"{i:<8} {length:<8} {frame_range:<15} {status:<10} {success_status}")
+                if success:
+                    successful_count += 1
+                else:
+                    failed_count += 1
+            else:
+                print(f"{i:<8} {length:<8} {frame_range:<15} {status}")
+            
+            cumulative += length
+          # Summary
+        if self.episode_success is not None:
+            print(f"\n📊 Summary: {successful_count} successful, {failed_count} failed episodes")
+    
     def close(self):
         """Clean up resources."""
         yarp.Network.fini()
@@ -258,7 +277,7 @@ def main():
     parser = argparse.ArgumentParser(description="Visualize MetaCub dataset episodes")
     parser.add_argument("dataset", nargs='?', default="assets/beer_data.zarr.zip", help="Path to zarr.zip dataset file")
     parser.add_argument("-e", "--episode", type=int, default=0, help="Episode index to visualize")
-    parser.add_argument("-s", "--speed", type=float, default=1.0, help="Playback speed multiplier")
+    parser.add_argument("-f", "--frequency", type=float, default=10.0, help="Playback frequency in Hz (default: 10.0)")
     parser.add_argument("-l", "--list", action="store_true", help="List available episodes and exit")
     
     args = parser.parse_args()
@@ -284,9 +303,8 @@ def main():
             return 1
         
         print("🎬 Starting dataset visualization...")
-        
-        # Visualize episode
-        visualizer.visualize_episode(args.episode, args.speed)
+          # Visualize episode
+        visualizer.visualize_episode(args.episode, args.frequency)
         input()
         
         return 0
