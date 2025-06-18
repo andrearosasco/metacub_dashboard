@@ -1,5 +1,5 @@
 [project]
-authors = [{name = "kdpe-robotics", email = "no-reply@kdpe-robotics.com"}]
+authors = [{name = "Andrea Rosasco", email = "andrearosasco.ar@gmail.com"}]
 name = "metaCub_dashboard"
 requires-python = ">= 3.11"
 version = "0.1.0"
