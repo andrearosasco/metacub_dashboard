@@ -8,6 +8,7 @@ import sys
 from uuid import uuid4
 
 # Set environment before importing yarp
+os.environ["RERUN"] = "off"
 os.environ["YARP_ROBOT_NAME"] = "ergoCubSN002"
 import yarp
 import polars as pl
