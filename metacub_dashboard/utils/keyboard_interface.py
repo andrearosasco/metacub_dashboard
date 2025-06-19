@@ -22,11 +22,12 @@ else:
 class KeyboardInterface:
     """Keyboard interface with persistent status display using terminal control."""
     
-    def __init__(self, window_name: str = "MetaCub Dashboard Controls"):
+    def __init__(self, window_name: str = "MetaCub Dashboard - Episode Control"):
         self.window_name = window_name
         self.old_settings = None
         self.last_status = ""
-        self.current_episode_state = "STOPPED"
+        self.current_episode_state = ""
+        self.current_commands = ""  # Default commands
         self.is_active = True
         self.app_output_buffer = []
         self.max_app_lines = 15  # Keep last 15 lines of app output
@@ -39,8 +40,6 @@ class KeyboardInterface:
         # Start status update thread with longer interval
         self.status_thread = threading.Thread(target=self._status_update_loop, daemon=True)
         self.status_thread.start()
-    
-
     
     def _setup_print_aliasing(self):
         """Setup print aliasing to status-aware printer."""
@@ -77,9 +76,9 @@ class KeyboardInterface:
         
         # Print header and status using direct sys.stdout.write
         sys.stdout.write("="*80 + "\n")
-        sys.stdout.write("  MetaCub Dashboard - Episode Control\n")
+        sys.stdout.write(f"  {self.window_name}\n")
         sys.stdout.write("="*80 + "\n")
-        sys.stdout.write("  Commands: 's'=start episode | 'e'=end episode | 'r'=reset | 'q'=quit\n")
+        sys.stdout.write(f"  Commands: {self.current_commands}\n")
         sys.stdout.write("="*80 + "\n")
         sys.stdout.write(f"  Status: {self.current_episode_state} | {self.last_status}\n")
         sys.stdout.write("="*80 + "\n")
@@ -152,8 +151,7 @@ class KeyboardInterface:
                     return self._process_key(key)
                 # Small sleep to prevent busy waiting
                 time.sleep(0.01)
-        else:
-            # Non-blocking mode: check once and return
+        else:            # Non-blocking mode: check once and return
             if select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):
                 key = sys.stdin.read(1)
                 return self._process_key(key)
@@ -181,17 +179,28 @@ class KeyboardInterface:
             return 'quit'
         return None
     
-    def update_status(self, status: str):
-        """Update the status message and refresh display immediately."""
-        self.last_status = status
-        # Immediately refresh display to show the new status
-        with self.display_lock:
-            self._refresh_display()
-    
-    def set_episode_state(self, state: str):
-        """Update the episode state display and refresh immediately."""
-        self.current_episode_state = state
-        # Immediately refresh display to show the new state
+    def update_display(self, state: Optional[str] = None, status: Optional[str] = None, commands: Optional[str] = None):
+        """
+        Update display elements and refresh immediately.
+        
+        Args:
+            state: Episode state (e.g., "RECORDING", "STOPPED", "READY"). If None, keeps current state.
+            status: Status message to display. If None, keeps current status.
+            commands: Command help text to display. If None, keeps current commands.
+        """
+        # Update state if provided
+        if state is not None:
+            self.current_episode_state = state
+        
+        # Update status if provided
+        if status is not None:
+            self.last_status = status
+            
+        # Update commands if provided
+        if commands is not None:
+            self.current_commands = commands
+        
+        # Immediately refresh display to show the new information
         with self.display_lock:
             self._refresh_display()
     
@@ -265,15 +274,15 @@ def test_keyboard_interface():
             command = interface.get_command()
             if command:
                 printer.print(f"Command received: {command}")
-                interface.update_status(f"Last command: {command} at {time.strftime('%H:%M:%S')}")
+                interface.update_display(status=f"Last command: {command} at {time.strftime('%H:%M:%S')}")
                 
                 # Update episode state based on command
                 if command == 'start':
-                    interface.set_episode_state("RECORDING")
+                    interface.update_display(state="RECORDING")
                 elif command == 'end':
-                    interface.set_episode_state("STOPPED")
+                    interface.update_display(state="STOPPED")
                 elif command == 'reset':
-                    interface.set_episode_state("RESET")
+                    interface.update_display(state="RESET")
                 elif command == 'quit':
                     break
             
