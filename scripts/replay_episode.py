@@ -381,8 +381,8 @@ def replay_episode(zarr_path: str, episode_idx: int = 0, playback_speed: float =
         print("   'r' - Restart replay")
         print("   's' - Pause/Resume")
         
-        keyboard.update_status("Ready - Starting replay...")
-        keyboard.set_episode_state("REPLAYING")
+        keyboard.update_display(status="Ready - Starting replay...")
+        keyboard.update_display(state="REPLAYING")
         
         frame_idx = 0
         is_paused = False
@@ -390,23 +390,23 @@ def replay_episode(zarr_path: str, episode_idx: int = 0, playback_speed: float =
         
         while frame_idx < total_frames:
             # Check for commands
-            command = keyboard.get_command()
-            if command == 'quit':
+            key = keyboard.get_command()
+            if key == 'q' or key == '\x03':  # 'q' or Ctrl+C
                 print("👋 Replay stopped by user")
                 break
-            elif command == 'reset':
+            elif key == 'r':  # 'r' for reset
                 print("🔄 Restarting replay...")
                 frame_idx = 0
                 start_time = time.perf_counter()
                 continue
-            elif command == 'start':  # 's' key for pause/resume
+            elif key == 's':  # 's' key for pause/resume
                 is_paused = not is_paused
                 if is_paused:
                     print("⏸️  Replay paused")
-                    keyboard.set_episode_state("PAUSED")
+                    keyboard.update_display(state="PAUSED")
                 else:
                     print("▶️  Replay resumed")
-                    keyboard.set_episode_state("REPLAYING")
+                    keyboard.update_display(state="REPLAYING")
             
             if is_paused:
                 time.sleep(0.1)
@@ -432,7 +432,7 @@ def replay_episode(zarr_path: str, episode_idx: int = 0, playback_speed: float =
             
             # Update progress
             progress = (frame_idx + 1) / total_frames * 100
-            keyboard.update_status(f"Replaying... {progress:.1f}% (frame {frame_idx+1}/{total_frames})")
+            keyboard.update_display(status=f"Replaying... {progress:.1f}% (frame {frame_idx+1}/{total_frames})")
             
             frame_idx += 1
             
@@ -446,15 +446,15 @@ def replay_episode(zarr_path: str, episode_idx: int = 0, playback_speed: float =
         
         if frame_idx >= total_frames:
             print("✅ Replay completed!")
-            keyboard.update_status("Replay completed - Press 'r' to restart or 'q' to quit")
-            keyboard.set_episode_state("COMPLETED")
+            keyboard.update_display(status="Replay completed - Press 'r' to restart or 'q' to quit")
+            keyboard.update_display(state="COMPLETED")
             
             # Wait for user command after completion
             while True:
-                command = keyboard.get_command()
-                if command == 'quit':
+                key = keyboard.get_command()
+                if key == 'q' or key == '\x03':  # 'q' or Ctrl+C
                     break
-                elif command == 'reset':
+                elif key == 'r':  # 'r' for reset
                     # Restart replay
                     replay_episode(zarr_path, episode_idx, playback_speed)
                     break

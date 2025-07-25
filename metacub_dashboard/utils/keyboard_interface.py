@@ -104,16 +104,7 @@ class KeyboardInterface:
             blocking: If True, wait until a command is received
             
         Returns:
-            str or None: Command character or None if no key pressed (when non-blocking)
-            Commands:
-            - 's': start episode
-            - 'e': end episode  
-            - 'q': quit application
-            - 'r': reset episode
-            - 'k': keep episode
-            - 'd': discard episode
-            - ' ' (spacebar): space (keep & end)
-            - delete/backspace: delete (discard & end)
+            str or None: Raw key character or None if no key pressed (when non-blocking)
         """
         if not sys.stdin.isatty():
             return None
@@ -130,14 +121,14 @@ class KeyboardInterface:
             while True:
                 if msvcrt.kbhit():
                     key = msvcrt.getch().decode('utf-8', errors='ignore')
-                    return self._process_key(key)
+                    return key
                 # Small sleep to prevent busy waiting
                 time.sleep(0.01)
         else:
             # Non-blocking mode: check once and return
             if msvcrt.kbhit():
                 key = msvcrt.getch().decode('utf-8', errors='ignore')
-                return self._process_key(key)
+                return key
             return None
     
     def _get_command_unix(self, blocking: bool = False) -> Optional[str]:
@@ -148,36 +139,14 @@ class KeyboardInterface:
                 # Check if input is available
                 if select.select([sys.stdin], [], [], 0.01) == ([sys.stdin], [], []):
                     key = sys.stdin.read(1)
-                    return self._process_key(key)
+                    return key
                 # Small sleep to prevent busy waiting
                 time.sleep(0.01)
         else:            # Non-blocking mode: check once and return
             if select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):
                 key = sys.stdin.read(1)
-                return self._process_key(key)
+                return key
             return None
-    
-    def _process_key(self, key: str) -> Optional[str]:
-        """Process a key and return the corresponding command."""
-        if key == 's':
-            return 'start'
-        elif key == 'e':
-            return 'end'
-        elif key == 'q':
-            return 'quit'
-        elif key == 'r':
-            return 'reset'
-        elif key == 'k':
-            return 'keep'
-        elif key == 'd':
-            return 'discard'
-        elif key == ' ':  # Spacebar
-            return 'space'
-        elif key == '\x7f' or key == '\x08':  # Delete/Backspace key (Unix/Windows)
-            return 'delete'
-        elif key == '\x03':  # Ctrl+C
-            return 'quit'
-        return None
     
     def update_display(self, state: Optional[str] = None, status: Optional[str] = None, commands: Optional[str] = None):
         """
@@ -271,19 +240,19 @@ def test_keyboard_interface():
     try:
         import time
         while True:
-            command = interface.get_command()
-            if command:
-                printer.print(f"Command received: {command}")
-                interface.update_display(status=f"Last command: {command} at {time.strftime('%H:%M:%S')}")
+            key = interface.get_command()
+            if key:
+                printer.print(f"Key received: {repr(key)}")
+                interface.update_display(status=f"Last key: {repr(key)} at {time.strftime('%H:%M:%S')}")
                 
-                # Update episode state based on command
-                if command == 'start':
+                # Update episode state based on key
+                if key == 's':
                     interface.update_display(state="RECORDING")
-                elif command == 'end':
+                elif key == 'e':
                     interface.update_display(state="STOPPED")
-                elif command == 'reset':
+                elif key == 'r':
                     interface.update_display(state="RESET")
-                elif command == 'quit':
+                elif key == 'q' or key == '\x03':  # 'q' or Ctrl+C
                     break
             
             # Simulate application output every few seconds

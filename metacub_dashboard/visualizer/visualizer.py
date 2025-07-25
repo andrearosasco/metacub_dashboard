@@ -89,7 +89,7 @@ class Visualizer:
     Eliminates StreamData objects and wrapper classes.
     """
     
-    def __init__(self, urdf=None, blueprint=None, robot_pose=None, gradio=True):
+    def __init__(self, urdf=None, blueprint=None, robot_pose=None, gradio=True, no_op=False):
         """
         Initialize visualizer with optional automatic URDF/blueprint setup.
         
@@ -98,7 +98,14 @@ class Visualizer:
             blueprint: Blueprint object, or None to auto-generate
             robot_pose: Optional robot pose
             gradio: Whether to use gradio interface
+            no_op: If True, disables all visualization functionality
         """
+        self.no_op = no_op
+        if self.no_op:
+            # Provide default eef_paths when in no-op mode
+            self.eef_paths = ["left_arm", "right_arm"]
+            return
+            
         # Auto-load URDF if not provided
         if urdf is None:
             print("🎨 Setting up visualization...")
@@ -276,6 +283,9 @@ class Visualizer:
             timestamp: Current timestamp
             static: Whether data is static
         """
+        if self.no_op:
+            return
+            
         self.rec.set_time("real_time", duration=timestamp)
         
         # Log collection frequency

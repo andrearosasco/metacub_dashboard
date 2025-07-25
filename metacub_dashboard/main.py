@@ -25,8 +25,12 @@ from metacub_dashboard.data_logger.data_logger import DataLogger
 from metacub_dashboard.utils.keyboard_interface import KeyboardInterface
 
 
-def main():
-    """Main function to run the MetaCub Dashboard."""
+def main(enable_visualizer: bool = True):
+    """Main function to run the MetaCub Dashboard.
+    
+    Args:
+        enable_visualizer: If False, disables all visualization functionality
+    """
     # Initialize resources that need cleanup
     keyboard = None
     control_reader = None 
@@ -58,7 +62,9 @@ def main():
     def signal_handler(signum, frame):
         """Handle Ctrl+C gracefully."""
         print(f"\n🛑 Received signal {signum} (Ctrl+C), shutting down...")
+        print("🧹 Final cleanup...")
         cleanup_resources()
+        print("✅ Clean shutdown complete!")
         sys.exit(0)
     
     # Set up signal handlers for graceful shutdown
@@ -67,6 +73,7 @@ def main():
     
     # Set up keyboard interface FIRST (handles signal and print setup automatically)
     keyboard = KeyboardInterface("MetaCub Dashboard - Episode Control")
+    keyboard.update_display(state="STARTING", status="Initializing MetaCub Dashboard...")
     
     try:
         print("🚀 Starting MetaCub Dashboard...")
@@ -98,7 +105,7 @@ def main():
         )
 
         # Visualization setup - let visualizer handle URDF loading and blueprint creation
-        visualizer = Visualizer(gradio=False)
+        visualizer = Visualizer(gradio=False, no_op=not enable_visualizer)
         eef_paths = visualizer.eef_paths  # Get the eef_paths from the auto-setup
 
         # Data logging setup
@@ -120,19 +127,15 @@ def main():
             # Auto-start next episode
             current_episode = episode_count + 1
             
-            keyboard.set_episode_state("RESETTING")
-            keyboard.update_status("Resetting the robot...")
-            print("🔄 Resetting the robot...")
-            
+            keyboard.update_display(state="RESETTING", status="Resetting the robot...", commands='')
             control_reader.reset()
 
-            keyboard.set_episode_state("READY")
-            keyboard.update_status("Start the episode by controlling the robot")
+            keyboard.update_display(state="READY", status="Start the episode by controlling the robot")
             control_data = control_reader.read()
 
             print(f"🔄 Episode {current_episode} started - Recording data...")
-            keyboard.update_status(f"Episode {current_episode} - Recording... (Space: keep & end, Delete: discard & end, q: quit)")
-            keyboard.set_episode_state("RECORDING")
+            keyboard.update_display(state="RECORDING", status=f"Episode {current_episode} - Recording...",
+                                    commands='Press Space to keep, Delete/Backspace to discard, or "Ctrl-c" to quit')
             
             iteration = 0
             start_episode_time = time.perf_counter()
@@ -140,12 +143,12 @@ def main():
             
             while True:  # Episode loop
                 # Check for episode control commands
-                command = keyboard.get_command()
-                if command == 'space':
+                key = keyboard.get_command()
+                if key == ' ':  # Spacebar - keep & end
                     print(f"⏹️  Episode {current_episode} ended - keeping data")
                     episode_decision = 'keep'
                     break
-                elif command == 'delete':
+                elif key == '\x7f' or key == '\x08':  # Delete/Backspace - discard & end
                     print(f"⏹️  Episode {current_episode} ended - discarding data")
                     episode_decision = 'discard'
                     break
@@ -190,35 +193,27 @@ def main():
                 iteration += 1
                 
                 # Update status periodically to show progress
-                if iteration % 100 == 0:
-                    keyboard.update_status(f"Episode {current_episode} - Recording... (iter: {iteration})")
+                if iteration % 10 == 0:
+                    keyboard.update_display(status=f"Episode {current_episode} - Recording... (iter: {iteration})")
             
             # Episode cleanup
+            keyboard.update_display(state="END",)
             print(f"🧹 Cleaning up Episode {current_episode}...")
             
             # Handle episode decision
             if episode_decision == 'keep':
                 print(f"✅ Keeping episode - saving as Episode {episode_count + 1}...")
-                keyboard.update_status(f"Episode {episode_count + 1} - Saving...")
+                keyboard.update_display(status=f"Episode {episode_count + 1} - Saving...")
                 data_logger.end_episode()
                 print(f"💾 Episode {episode_count + 1} saved successfully!")
                 episode_count += 1
             elif episode_decision == 'discard':
                 print("🗑️  Discarding episode - data will not be saved...")
-                keyboard.update_status(f"Episode {current_episode} - Discarding...")
+                keyboard.update_display(status=f"Episode {current_episode} - Discarding...")
                 data_logger.end_episode(success=False)
                 print(f"🗑️  Episode {current_episode} discarded!")
-            elif episode_decision == 'quit':
-                print("🗑️  Discarding current episode and quitting...")
-                data_logger.end_episode(success=False)
-                break
             
             # Continue to next episode (go back to main loop)
-        
-
-        print("🧹 Final cleanup...")
-        cleanup_resources()
-        print("✅ Clean shutdown complete!")
     
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
